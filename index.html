@@ -70,7 +70,9 @@
   .badge.appointment{ background:var(--grey); }
   .agenda-item .gcal-link{ margin-left:auto; font-size:11px; color:var(--maroon); text-decoration:none; font-weight:700; border-bottom:1px solid var(--maroon); white-space:nowrap; }
 
-  .tiles{ display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:24px; }
+  .tiles{ display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-top:24px; }
+  .remarks-input{ width:100%; min-width:160px; font-family:'Inter',sans-serif; font-size:12px; padding:6px 8px; border-radius:6px; border:1px solid var(--grey-line); background:#fff; }
+  .remarks-input:focus{ outline:2px solid var(--maroon-soft); }
   .tile{ background:var(--maroon); border:none; border-radius:6px; padding:32px 20px; cursor:pointer; text-align:left; transition:background .15s ease, transform .15s ease; display:flex; flex-direction:column; gap:6px; min-height:140px; justify-content:flex-end; }
   .tile:hover{ background:var(--maroon-dark); transform:translateY(-2px); }
   .tile .tile-icon{ font-size:20px; margin-bottom:4px; }
@@ -144,6 +146,7 @@
   <div class="nav">
     <button class="nav-btn active" data-view="dashboard">Dashboard</button>
     <button class="nav-btn" data-view="cause">Cause List</button>
+    <button class="nav-btn" data-view="tasklist">Tasks</button>
     <button class="nav-btn" data-view="registers">Office Registers</button>
   </div>
   <div class="drive-bar" id="drive-bar"></div>
@@ -167,9 +170,13 @@
           <div class="tile-icon">📋</div><h3>Cause List</h3>
           <p>Upcoming hearings, pulled live from the Case Master register.</p>
         </button>
+        <button class="tile" data-goto="tasklist">
+          <div class="tile-icon">✅</div><h3>Tasks</h3>
+          <p>Live list of pending and in-progress tasks, sorted by deadline.</p>
+        </button>
         <button class="tile" data-goto="registers">
           <div class="tile-icon">📁</div><h3>Office Registers</h3>
-          <p>Client & Case Master, Drafting, Certified Copy, PF, Legal Notice, Appointments, Tasks.</p>
+          <p>Client & Case Master, Drafting, Certified Copy, PF, Legal Notice, Bank Panel, Appointments, Tasks.</p>
         </button>
       </div>
     </div>
@@ -177,13 +184,27 @@
     <div id="view-cause" style="display:none;">
       <a class="back-link" data-goto="dashboard">← Back to dashboard</a>
       <h2 class="section-title">Cause List Tracker <span class="tag" id="cause-count-tag"></span></h2>
-      <div class="note-box">Pulled live from the Case Master register's "Next Hearing Date" — add or update a case there to change this list.</div>
+      <div class="note-box">Pulled live from the Case Master register's "Next Hearing Date" — add or update a case there to change this list. Remarks can be typed directly below by anyone and are saved automatically.</div>
       <div class="toolbar" id="cause-court-filter"></div>
       <div class="export-bar"><button class="btn btn-ghost" id="ics-export-cause">⤓ Export .ics</button></div>
       <div class="panel-box">
         <table>
-          <thead><tr><th>Date</th><th>Case ID</th><th>Case No.</th><th>Title</th><th>Client</th><th>Court / Room</th><th>Stage</th><th></th></tr></thead>
+          <thead><tr><th>Date</th><th>Case ID</th><th>Case No.</th><th>Title</th><th>Client</th><th>Court / Room</th><th>Stage</th><th>Remarks / Directions</th><th></th></tr></thead>
           <tbody id="cause-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="view-tasklist" style="display:none;">
+      <a class="back-link" data-goto="dashboard">← Back to dashboard</a>
+      <h2 class="section-title">Task List <span class="tag" id="tasklist-count-tag"></span></h2>
+      <div class="note-box">Pulled live from the Tasks register — add or update a task there to change this list.</div>
+      <div class="toolbar" id="tasklist-status-filter"></div>
+      <div class="export-bar"><button class="btn btn-ghost" id="ics-export-tasklist">⤓ Export .ics</button></div>
+      <div class="panel-box">
+        <table>
+          <thead><tr><th>Deadline</th><th>Days Left</th><th>Task</th><th>Assigned To</th><th>Status</th><th></th></tr></thead>
+          <tbody id="tasklist-tbody"></tbody>
         </table>
       </div>
     </div>
@@ -215,7 +236,7 @@
 /* ============================================================
    DATA MODEL
    ============================================================ */
-const DB = { clients:[], cases:[], drafts:[], certifiedCopies:[], pf:[], notices:[], appointments:[], tasks:[], counters:{} };
+const DB = { clients:[], cases:[], drafts:[], certifiedCopies:[], pf:[], notices:[], appointments:[], tasks:[], bankPanel:[], counters:{} };
 
 function addDays(n){ const d=new Date(); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }
 function uid(){ return Math.random().toString(36).slice(2,9); }
@@ -421,6 +442,7 @@ async function checkForRemoteUpdates(){
 function rerenderCurrentView(){
   if(document.getElementById('view-dashboard').style.display!=='none') renderCalendar();
   if(document.getElementById('view-cause').style.display!=='none') renderCause();
+  if(document.getElementById('view-tasklist').style.display!=='none') renderTaskList();
   if(document.getElementById('view-registers').style.display!=='none') renderRegisters();
 }
 async function resetToSampleData(){
@@ -450,13 +472,20 @@ function checkDeletePassword(){
 }
 function deleteRow(regKey, rowId){
   if(regKey==='clients'){
-    const linked = DB.cases.filter(c=>c.clientId===rowId);
-    if(linked.length){ alert('This client has linked case(s): '+linked.map(c=>c.id).join(', ')+'.\nDelete or reassign those cases first.'); return; }
+    const linkedCases = DB.cases.filter(c=>c.clientId===rowId);
+    const linkedDrafts = DB.drafts.filter(d=>d.clientId===rowId);
+    const linkedNotices = DB.notices.filter(n=>n.clientId===rowId);
+    if(linkedCases.length || linkedDrafts.length || linkedNotices.length){
+      let msg = 'This client still has linked records:\n';
+      if(linkedCases.length) msg += 'Cases: '+linkedCases.map(c=>c.id).join(', ')+'\n';
+      if(linkedDrafts.length) msg += 'Drafting entries: '+linkedDrafts.length+'\n';
+      if(linkedNotices.length) msg += 'Legal notices: '+linkedNotices.map(n=>n.refNo).join(', ')+'\n';
+      msg += 'Delete or reassign those first.';
+      alert(msg); return;
+    }
   }
   if(regKey==='cases'){
     const dependents = [];
-    DB.drafts.forEach(d=>{ if(d.caseId===rowId) dependents.push('Drafting: '+d.docType); });
-    DB.certifiedCopies.forEach(d=>{ if(d.caseId===rowId) dependents.push('Certified Copy: '+d.docAppliedFor); });
     DB.pf.forEach(d=>{ if(d.caseId===rowId) dependents.push('PF: '+d.summoningFor); });
     if(dependents.length){ alert('This case has linked entries elsewhere:\n'+dependents.join('\n')+'\nDelete those first.'); return; }
   }
@@ -476,6 +505,13 @@ function statusPillClass(s){
 /* ============================================================
    REGISTER DEFINITIONS
    ============================================================ */
+function generateNoticeRefNo(clientId){
+  const year = new Date().getFullYear();
+  const countForClient = DB.notices.filter(n=>n.clientId===clientId).length;
+  const serial = String(countForClient+1).padStart(2,'0');
+  return `${clientId}/${serial}/${year}`;
+}
+
 const REGISTERS = [
   { key:'clients', label:'Client Master', idPrefix:'CLI',
     columns:[
@@ -483,6 +519,7 @@ const REGISTERS = [
       {key:'parentage', label:'Parentage (S/o, D/o, W/o)', type:'text'},
       {key:'address', label:'Address', type:'text'},
       {key:'phone', label:'Contact Details', type:'text'},
+      {key:'engagedFor', label:'Engaged For', type:'text'},
       {key:'engagementDate', label:'Engagement Date', type:'date'}
     ],
     extraColumns:[
@@ -500,13 +537,14 @@ const REGISTERS = [
       {key:'roomNo', label:'Room No.', type:'text'},
       {key:'type', label:'Case Type', type:'text'},
       {key:'clientId', label:'Client', type:'clientRef', required:true},
-      {key:'stage', label:'Stage', type:'select', options:['Filing','Pending','Arguments','Evidence','Reserved','Disposed']},
-      {key:'nextDate', label:'Next Hearing Date', type:'date'}
+      {key:'stage', label:'Stage', type:'select', options:['Filing','Pleadings','Miscellaneous Appearances','Arguments','Evidence','Final Arguments','Disposal']},
+      {key:'nextDate', label:'Next Hearing Date', type:'date'},
+      {key:'remarks', label:'Remarks', type:'text'}
     ]
   },
   { key:'drafts', label:'Drafting Register', idPrefix:null,
     columns:[
-      {key:'caseId', label:'Case', type:'caseRef', required:true},
+      {key:'clientId', label:'Client', type:'clientRef', required:true},
       {key:'docType', label:'Document Type', type:'text', required:true},
       {key:'assignedTo', label:'Assigned To', type:'text'},
       {key:'status', label:'Status', type:'select', options:['Pending','In Progress','Completed','Filed']},
@@ -517,7 +555,6 @@ const REGISTERS = [
   },
   { key:'certifiedCopies', label:'Certified Copy Register', idPrefix:null,
     columns:[
-      {key:'caseId', label:'Case', type:'caseRef', required:true},
       {key:'docAppliedFor', label:'Document Applied For', type:'text', required:true},
       {key:'applicationDate', label:'Application Date', type:'date'},
       {key:'applicationNo', label:'Application No.', type:'text'},
@@ -534,9 +571,10 @@ const REGISTERS = [
     ]
   },
   { key:'notices', label:'Legal Notice Register', idPrefix:null,
+    autoField:{ key:'refNo', label:'Reference No.', generate: row => generateNoticeRefNo(row.clientId) },
     columns:[
-      {key:'refNo', label:'Reference No.', type:'text', required:true},
       {key:'clientId', label:'Client', type:'clientRef', required:true},
+      {key:'caseId', label:'Case', type:'caseRef'},
       {key:'noticeType', label:'Notice Type', type:'text'},
       {key:'sentTo', label:'Sent To Whom', type:'text'},
       {key:'dispatchDate', label:'Date of Dispatch', type:'date'},
@@ -561,6 +599,20 @@ const REGISTERS = [
       {key:'deadline', label:'Deadline', type:'date'},
       {key:'status', label:'Status', type:'select', options:['Pending','In Progress','Done']}
     ]
+  },
+  { key:'bankPanel', label:'Bank Panel Register', idPrefix:'WORK',
+    columns:[
+      {key:'bankName', label:'Bank Name', type:'text', required:true},
+      {key:'branchName', label:'Branch Name', type:'text'},
+      {key:'workType', label:'Work Type', type:'select', options:['LSR1','LSR2','Audit','Vetting']},
+      {key:'partyName', label:'Party Name', type:'text'},
+      {key:'subRegistrar', label:'Sub Registrar', type:'text'},
+      {key:'certifiedApplied', label:'Certified Copy Applied', type:'select', options:['No','Yes']},
+      {key:'certifiedApplyDate', label:'Date of Apply', type:'date'},
+      {key:'inspectionDone', label:'Inspection Done', type:'select', options:['No','Yes']},
+      {key:'inspectionDate', label:'Date of Inspection', type:'date'},
+      {key:'status', label:'Status', type:'select', options:['Pending','Done']}
+    ]
   }
 ];
 function regDef(key){ return REGISTERS.find(r=>r.key===key); }
@@ -570,59 +622,63 @@ const CALENDAR_SOURCES = [
   { key:'cases', dateField:'nextDate', type:'hearing',
     title: r => `Hearing: ${r.id} — ${r.title||''}`, detail: r => `${r.court||''} ${r.roomNo?('Room '+r.roomNo):''}` },
   { key:'drafts', dateField:'deadline', type:'deadline',
-    title: r => `Draft due: ${r.docType||''} (${r.caseId||''})`, detail: r => r.remarks||'' },
+    title: r => `Draft due: ${r.docType||''} (${r.clientId||''})`, detail: r => r.remarks||'' },
   { key:'pf', dateField:'filingDate', type:'deadline',
     title: r => `PF filing: ${r.summoningFor||''} (${r.caseId||''})`, detail: r => r.remarks||'' },
   { key:'certifiedCopies', dateField:'applicationDate', type:'deadline',
-    title: r => `CC applied: ${r.docAppliedFor||''} (${r.caseId||''})`, detail: r => r.applicationNo||'' },
+    title: r => `CC applied: ${r.docAppliedFor||''}`, detail: r => r.applicationNo||'' },
   { key:'appointments', dateField:'date', type:'appointment',
     title: r => `Appointment: ${r.name||''} — ${r.purpose||''}`, detail: r => `${r.time||''} with ${r.withAdvocate||''}` },
   { key:'tasks', dateField:'deadline', type:'deadline',
-    title: r => `Task due: ${r.task||''}`, detail: r => `Assigned: ${r.assignedTo||''}` }
+    title: r => `Task due: ${r.task||''}`, detail: r => `Assigned: ${r.assignedTo||''}` },
+  { key:'bankPanel', dateField:'certifiedApplyDate', type:'deadline',
+    title: r => `Bank CC applied: ${r.bankName||''} (${r.id||''})`, detail: r => r.branchName||'' },
+  { key:'bankPanel', dateField:'inspectionDate', type:'appointment',
+    title: r => `Bank inspection: ${r.bankName||''} (${r.id||''})`, detail: r => r.branchName||'' }
 ];
 
 /* ============================================================
    SEED DATA — only used the very first time, before anyone has saved data
    ============================================================ */
 function seedSampleData(){
-  function addClient(name,parentage,address,phone,engagementDate){
+  function addClient(name,parentage,address,phone,engagedFor,engagementDate){
     const id = nextRegId('CLI','clients');
-    DB.clients.push({id,name,parentage,address,phone,engagementDate});
+    DB.clients.push({id,name,parentage,address,phone,engagedFor,engagementDate});
     return id;
   }
-  function addCase(title,caseNo,court,roomNo,type,clientId,stage,nextDate){
+  function addCase(title,caseNo,court,roomNo,type,clientId,stage,nextDate,remarks){
     const id = nextRegId('CASE','cases');
-    DB.cases.push({id,title,caseNo,court,roomNo,type,clientId,stage,nextDate});
+    DB.cases.push({id,title,caseNo,court,roomNo,type,clientId,stage,nextDate,remarks:remarks||''});
     return id;
   }
-  const cli1 = addClient('Ajeya Hudda','','','', addDays(-200));
-  const cli2 = addClient('Smt. Darshana Devi','','','', addDays(-150));
-  const cli3 = addClient('Raju & Kavita','','','', addDays(-90));
-  const cli4 = addClient('Rajnesh','','','', addDays(-60));
-  const cli5 = addClient('Health Voyage Global','','','', addDays(-30));
-  const cli6 = addClient('Mrs. Himanshi','','','', addDays(-20));
+  const cli1 = addClient('Ajeya Hudda','','','','Civil & criminal representation', addDays(-200));
+  const cli2 = addClient('Smt. Darshana Devi','','','','Maintenance proceedings', addDays(-150));
+  const cli3 = addClient('Raju & Kavita','','','','Criminal defence', addDays(-90));
+  const cli4 = addClient('Rajnesh','','','','Matrimonial / DV Act matter', addDays(-60));
+  const cli5 = addClient('Health Voyage Global','','','','Trademark registration', addDays(-30));
+  const cli6 = addClient('Mrs. Himanshi','','','','Matrimonial cruelty & maintenance notice', addDays(-20));
 
-  const case1 = addCase('Ajeya Hudda v. Kamlesh Devi','CS No. 453/2019','Rohini Courts','','Civil', cli1,'Arguments', addDays(4));
-  const case2 = addCase('Ajeya Hudda v. Satbir Singh','CC No. 2317/19','Rohini Courts','','Criminal Complaint', cli1,'Evidence', addDays(11));
-  const case3 = addCase('Darshana Devi — Maintenance','420/SC/DC/NW/2022','District Court NW','','Maintenance (S.125)', cli2,'Pending', addDays(2));
-  const case4 = addCase('State v. Raju & Kavita','FIR No. 195/2025','PS Kotwali / Sessions','','Criminal (BNS/POCSO)', cli3,'Arguments', addDays(9));
-  const case5 = addCase('Rajnesh v. Neha','DV Act Maintenance','District Court','','Matrimonial / DV Act', cli4,'Pending', addDays(6));
-  const case6 = addCase('HEALTH VOYAGE GLOBAL — Trademark','App. No. 7839406','Trade Marks Registry','','Trademark', cli5,'Filing', addDays(14));
+  const case1 = addCase('Ajeya Hudda v. Kamlesh Devi','CS No. 453/2019','Rohini Courts','','Civil', cli1,'Arguments', addDays(4), 'Awaiting rejoinder to O.VII R.11 opposition.');
+  const case2 = addCase('Ajeya Hudda v. Satbir Singh','CC No. 2317/19','Rohini Courts','','Criminal Complaint', cli1,'Evidence', addDays(11), '');
+  const case3 = addCase('Darshana Devi — Maintenance','420/SC/DC/NW/2022','District Court NW','','Maintenance (S.125)', cli2,'Miscellaneous Appearances', addDays(2), 'Compliance report pending.');
+  const case4 = addCase('State v. Raju & Kavita','FIR No. 195/2025','PS Kotwali / Sessions','','Criminal (BNS/POCSO)', cli3,'Arguments', addDays(9), '');
+  const case5 = addCase('Rajnesh v. Neha','DV Act Maintenance','District Court','','Matrimonial / DV Act', cli4,'Pleadings', addDays(6), 'Rebuttal to superseding affidavit format due.');
+  const case6 = addCase('HEALTH VOYAGE GLOBAL — Trademark','App. No. 7839406','Trade Marks Registry','','Trademark', cli5,'Filing', addDays(14), '');
 
   DB.drafts.push(
-    {id:uid(), caseId:case1, docType:'Rejoinder to O.VII R.11 application', assignedTo:'Self', status:'In Progress', deadline:addDays(4), driveLink:'', remarks:''},
-    {id:uid(), caseId:case5, docType:'Rebuttal to superseding affidavit format', assignedTo:'Self', status:'Pending', deadline:addDays(2), driveLink:'', remarks:''},
-    {id:uid(), caseId:case4, docType:'Written discharge arguments — final draft', assignedTo:'Self', status:'In Progress', deadline:addDays(9), driveLink:'', remarks:''},
-    {id:uid(), caseId:case3, docType:'Compliance report for maintenance order', assignedTo:'Self', status:'Pending', deadline:addDays(-1), driveLink:'', remarks:'Overdue — priority'}
+    {id:uid(), clientId:cli1, docType:'Rejoinder to O.VII R.11 application', assignedTo:'Self', status:'In Progress', deadline:addDays(4), driveLink:'', remarks:''},
+    {id:uid(), clientId:cli4, docType:'Rebuttal to superseding affidavit format', assignedTo:'Self', status:'Pending', deadline:addDays(2), driveLink:'', remarks:''},
+    {id:uid(), clientId:cli3, docType:'Written discharge arguments — final draft', assignedTo:'Self', status:'In Progress', deadline:addDays(9), driveLink:'', remarks:''},
+    {id:uid(), clientId:cli2, docType:'Compliance report for maintenance order', assignedTo:'Self', status:'Pending', deadline:addDays(-1), driveLink:'', remarks:'Overdue — priority'}
   );
   DB.certifiedCopies.push(
-    {id:uid(), caseId:case2, docAppliedFor:'Certified copy of order', applicationDate:addDays(-10), applicationNo:'CC/2026/0142', receivedDate:'', remarks:'Awaiting collection'}
+    {id:uid(), docAppliedFor:'Certified copy of order — CC 2317/19', applicationDate:addDays(-10), applicationNo:'CC/2026/0142', receivedDate:'', remarks:'Awaiting collection'}
   );
   DB.pf.push(
     {id:uid(), caseId:case4, summoningFor:'Accused summoning', filingDate:addDays(-5), remarks:''}
   );
   DB.notices.push(
-    {id:uid(), refNo:'LN/2026/014', clientId:cli6, noticeType:'Matrimonial cruelty & maintenance notice', sentTo:'Husband & family members', dispatchDate:addDays(-15), courierNo:'SPD1234567IN', status:'Dispatched'}
+    {id:uid(), refNo:generateNoticeRefNo(cli6), clientId:cli6, caseId:'', noticeType:'Matrimonial cruelty & maintenance notice', sentTo:'Husband & family members', dispatchDate:addDays(-15), courierNo:'SPD1234567IN', status:'Dispatched'}
   );
   DB.appointments.push(
     {id:uid(), date:addDays(1), time:'11:00', name:'Ajeya Hudda', purpose:'Case strategy discussion', withAdvocate:'Adv. Saurabh Arya', remarks:''},
@@ -632,18 +688,22 @@ function seedSampleData(){
     {id:uid(), task:'File rejoinder in CS 453/2019', assignedTo:'Self', deadline:addDays(4), status:'In Progress'},
     {id:uid(), task:'Collect certified copy — CC 2317/19', assignedTo:'Clerk', deadline:addDays(7), status:'Pending'}
   );
+  DB.bankPanel.push(
+    {id:nextRegId('WORK','bankPanel'), bankName:'Central Bank of India', branchName:'Rohini Branch', workType:'LSR1', partyName:'—', subRegistrar:'Sub-Registrar Rohini', certifiedApplied:'Yes', certifiedApplyDate:addDays(-5), inspectionDone:'No', inspectionDate:'', status:'Pending'}
+  );
 }
 
 /* ============================================================
    NAVIGATION
    ============================================================ */
-const views = {dashboard:'view-dashboard', cause:'view-cause', registers:'view-registers'};
+const views = {dashboard:'view-dashboard', cause:'view-cause', tasklist:'view-tasklist', registers:'view-registers'};
 function goto(view){
   Object.values(views).forEach(id=>document.getElementById(id).style.display='none');
   document.getElementById(views[view]).style.display='block';
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active', b.dataset.view===view));
   if(view==='dashboard') renderCalendar();
   if(view==='cause') renderCause();
+  if(view==='tasklist') renderTaskList();
   if(view==='registers') renderRegisters();
   window.scrollTo({top:0, behavior:'smooth'});
 }
@@ -743,7 +803,7 @@ function renderCause(){
   document.getElementById('cause-count-tag').textContent = list.length + ' upcoming';
 
   const tbody = document.getElementById('cause-tbody');
-  if(!list.length){ tbody.innerHTML = `<tr><td colspan="8" class="empty-state">No hearings on record. Add a case with a next hearing date in Case Master.</td></tr>`; return; }
+  if(!list.length){ tbody.innerHTML = `<tr><td colspan="9" class="empty-state">No hearings on record. Add a case with a next hearing date in Case Master.</td></tr>`; return; }
   tbody.innerHTML = list.map(c=>{
     const cl = getClient(c.clientId);
     return `<tr>
@@ -754,13 +814,61 @@ function renderCause(){
       <td>${cl?escapeHtml(cl.id+' — '+cl.name):'—'}</td>
       <td>${escapeHtml(c.court)}${c.roomNo?' / Rm '+escapeHtml(c.roomNo):''}</td>
       <td><span class="status-pill ${statusPillClass(c.stage)}">${escapeHtml(c.stage||'—')}</span></td>
+      <td><input type="text" class="remarks-input" data-caseid="${c.id}" value="${escapeHtml(c.remarks||'')}" placeholder="Add remarks / directions"></td>
       <td><a class="gcal-link" style="font-size:11px;font-weight:700;color:var(--maroon);" target="_blank" href="${gcalLink('Hearing: '+c.id+' — '+c.title, c.nextDate, c.court)}">+ GCal</a></td>
     </tr>`;
   }).join('');
+  document.querySelectorAll('.remarks-input').forEach(inp=>{
+    inp.addEventListener('change', async (e)=>{
+      const cs = getCase(e.target.dataset.caseid);
+      if(cs){ cs.remarks = e.target.value; await persistDB(); }
+    });
+  });
 }
 document.getElementById('ics-export-cause').addEventListener('click', ()=>{
   const list = DB.cases.filter(c=>c.nextDate);
   downloadIcs(list.map(c=>({title:'Hearing: '+c.id+' — '+c.title, date:c.nextDate, detail:c.court})), 'cause-list.ics');
+});
+
+/* ============================================================
+   TASK LIST (derived from Tasks register)
+   ============================================================ */
+let tasklistStatusFilter = 'All';
+function renderTaskList(){
+  const withDeadline = DB.tasks.filter(t=>t.deadline);
+  const statuses = ['All', ...new Set(DB.tasks.map(t=>t.status).filter(Boolean))];
+  document.getElementById('tasklist-status-filter').innerHTML = statuses.map(s=>`<button class="chip ${s===tasklistStatusFilter?'active':''}" data-status="${escapeHtml(s)}">${escapeHtml(s)}</button>`).join('');
+  document.querySelectorAll('#tasklist-status-filter .chip').forEach(chip=>chip.addEventListener('click',()=>{ tasklistStatusFilter=chip.dataset.status; renderTaskList(); }));
+
+  let list = DB.tasks.slice().sort((a,b)=>(a.deadline||'').localeCompare(b.deadline||''));
+  if(tasklistStatusFilter!=='All') list = list.filter(t=>t.status===tasklistStatusFilter);
+  document.getElementById('tasklist-count-tag').textContent = list.length + ' tasks';
+
+  const tbody = document.getElementById('tasklist-tbody');
+  if(!list.length){ tbody.innerHTML = `<tr><td colspan="6" class="empty-state">No tasks on record. Add one in Office Registers → Tasks.</td></tr>`; return; }
+  tbody.innerHTML = list.map(t=>{
+    let daysCell = '<span class="muted">—</span>';
+    let gcalCell = '';
+    if(t.deadline){
+      const rem = daysRemaining(t.deadline);
+      const urgClass = rem<0?'urgent':rem<=3?'urgent':rem<=7?'soon':'ok';
+      const remText = rem<0 ? `${Math.abs(rem)}d overdue` : rem===0 ? 'Due today' : `${rem}d left`;
+      daysCell = `<span class="countdown ${urgClass}">${remText}</span>`;
+      gcalCell = `<a class="gcal-link" style="font-size:11px;font-weight:700;color:var(--maroon);" target="_blank" href="${gcalLink('Task due: '+t.task, t.deadline, 'Assigned: '+(t.assignedTo||''))}">+ GCal</a>`;
+    }
+    return `<tr>
+      <td>${t.deadline?fmtDate(t.deadline):'<span class="muted">—</span>'}</td>
+      <td>${daysCell}</td>
+      <td>${escapeHtml(t.task)}</td>
+      <td>${escapeHtml(t.assignedTo)}</td>
+      <td><span class="status-pill ${statusPillClass(t.status)}">${escapeHtml(t.status||'—')}</span></td>
+      <td>${gcalCell}</td>
+    </tr>`;
+  }).join('');
+}
+document.getElementById('ics-export-tasklist').addEventListener('click', ()=>{
+  const list = DB.tasks.filter(t=>t.deadline);
+  downloadIcs(list.map(t=>({title:'Task due: '+t.task, date:t.deadline, detail:'Assigned: '+(t.assignedTo||'')})), 'task-list.ics');
 });
 
 /* ============================================================
@@ -843,6 +951,7 @@ function openRegForm(defKey, existingRow){
       row[col.key] = val;
     });
     if(missing){ alert('Please fill all required fields (marked *).'); return; }
+    if(def.autoField && !existingRow){ row[def.autoField.key] = def.autoField.generate(row); }
     if(!existingRow){ DB[def.key].push(row); }
     await persistDB();
     wrap.innerHTML=''; wrap.dataset.editing='';
@@ -853,7 +962,8 @@ function openRegForm(defKey, existingRow){
 function renderRegPanel(){
   const def = regDef(activeReg);
   const panel = document.getElementById('reg-panel');
-  const allCols = def.idPrefix ? [{key:'id',label:'ID',type:'id'}, ...def.columns] : def.columns.slice();
+  const leadCol = def.idPrefix ? {key:'id', label:'ID', type:'id'} : (def.autoField ? {key:def.autoField.key, label:def.autoField.label, type:'id'} : null);
+  const allCols = leadCol ? [leadCol, ...def.columns] : def.columns.slice();
   const extra = def.extraColumns || [];
 
   panel.innerHTML = `
@@ -866,7 +976,7 @@ function renderRegPanel(){
         <thead><tr>${allCols.map(c=>`<th>${c.label}</th>`).join('')}${extra.map(e=>`<th>${e.label}</th>`).join('')}<th></th></tr></thead>
         <tbody>
           ${DB[def.key].length ? DB[def.key].map(row=>`<tr>${
-            allCols.map(c=>`<td>${c.type==='id'?`<span class="idchip">${row.id}</span>`:cellValueHtml(row,c)}</td>`).join('') +
+            allCols.map(c=>`<td>${c.type==='id'?`<span class="idchip">${escapeHtml(row[c.key]||'')}</span>`:cellValueHtml(row,c)}</td>`).join('') +
             extra.map(e=>`<td>${e.render(row)}</td>`).join('') +
             `<td style="white-space:nowrap;">
               <button class="btn-ghost" style="padding:3px 9px;font-size:11px;color:var(--maroon);border:1px solid var(--maroon-soft);border-radius:5px;background:none;cursor:pointer;margin-right:4px;" onclick="editRowById('${def.key}','${row.id}')">✎ Edit</button>
