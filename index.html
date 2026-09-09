@@ -236,6 +236,9 @@
       <a class="back-link" data-goto="dashboard">← Back to dashboard</a>
       <h2 class="section-title">Cause List Tracker <span class="tag" id="cause-count-tag"></span></h2>
       <div class="note-box">Pulled live from the Case Master register's "Next Hearing Date" — add or update a case there to change this list. Remarks can be typed directly below by anyone and are saved automatically.</div>
+      <div class="toolbar">
+        <input type="text" id="cause-search" class="remarks-input" style="max-width:300px;" placeholder="🔍 Search by case, client, court, stage, remarks...">
+      </div>
       <div class="toolbar" id="cause-court-filter"></div>
       <div class="export-bar"><button class="btn btn-ghost" id="ics-export-cause">⤓ Export .ics</button></div>
       <div class="panel-box">
@@ -250,6 +253,9 @@
       <a class="back-link" data-goto="dashboard">← Back to dashboard</a>
       <h2 class="section-title">Task List <span class="tag" id="tasklist-count-tag"></span></h2>
       <div class="note-box">Pulled live from the Tasks register — add or update a task there to change this list.</div>
+      <div class="toolbar">
+        <input type="text" id="tasklist-search" class="remarks-input" style="max-width:300px;" placeholder="🔍 Search by task, assigned to, status...">
+      </div>
       <div class="toolbar" id="tasklist-status-filter"></div>
       <div class="export-bar"><button class="btn btn-ghost" id="ics-export-tasklist">⤓ Export .ics</button></div>
       <div class="panel-box">
@@ -264,6 +270,9 @@
       <a class="back-link" data-goto="dashboard">← Back to dashboard</a>
       <h2 class="section-title">Office Registers</h2>
       <div class="note-box" id="storage-note"></div>
+      <div class="toolbar">
+        <input type="text" id="reg-search" class="remarks-input" style="max-width:300px;" placeholder="🔍 Search this register...">
+      </div>
       <div class="reg-tabs" id="reg-tabs"></div>
       <div id="reg-panel"></div>
       <div style="text-align:right;margin-top:16px;display:flex;justify-content:flex-end;gap:8px;">
@@ -904,6 +913,7 @@ document.getElementById('export-all-ics').addEventListener('click', ()=>{
    CAUSE LIST (derived from Case Master)
    ============================================================ */
 let causeCourtFilter = 'All';
+let causeSearchQuery = '';
 function renderCause(){
   const withDates = DB.cases.filter(c=>c.nextDate);
   const courts = ['All', ...new Set(withDates.map(c=>c.court).filter(Boolean))];
@@ -912,10 +922,17 @@ function renderCause(){
 
   let list = withDates.slice().sort((a,b)=>a.nextDate.localeCompare(b.nextDate));
   if(causeCourtFilter!=='All') list = list.filter(c=>c.court===causeCourtFilter);
+  if(causeSearchQuery){
+    list = list.filter(c=>{
+      const cl = getClient(c.clientId);
+      const haystack = [c.id, c.caseNo, c.title, cl?cl.name:'', c.court, c.roomNo, c.stage, c.remarks].join(' ').toLowerCase();
+      return haystack.includes(causeSearchQuery);
+    });
+  }
   document.getElementById('cause-count-tag').textContent = list.length + ' upcoming';
 
   const tbody = document.getElementById('cause-tbody');
-  if(!list.length){ tbody.innerHTML = `<tr><td colspan="9" class="empty-state">No hearings on record. Add a case with a next hearing date in Case Master.</td></tr>`; return; }
+  if(!list.length){ tbody.innerHTML = `<tr><td colspan="9" class="empty-state">${causeSearchQuery ? 'No hearings match your search.' : 'No hearings on record. Add a case with a next hearing date in Case Master.'}</td></tr>`; return; }
   tbody.innerHTML = list.map(c=>{
     const cl = getClient(c.clientId);
     return `<tr>
@@ -941,11 +958,13 @@ document.getElementById('ics-export-cause').addEventListener('click', ()=>{
   const list = DB.cases.filter(c=>c.nextDate);
   downloadIcs(list.map(c=>({title:'Hearing: '+c.id+' — '+c.title, date:c.nextDate, detail:c.court})), 'cause-list.ics');
 });
+document.getElementById('cause-search').addEventListener('input', (e)=>{ causeSearchQuery = e.target.value.trim().toLowerCase(); renderCause(); });
 
 /* ============================================================
    TASK LIST (derived from Tasks register)
    ============================================================ */
 let tasklistStatusFilter = 'All';
+let tasklistSearchQuery = '';
 function renderTaskList(){
   const withDeadline = DB.tasks.filter(t=>t.deadline);
   const statuses = ['All', ...new Set(DB.tasks.map(t=>t.status).filter(Boolean))];
@@ -954,10 +973,16 @@ function renderTaskList(){
 
   let list = DB.tasks.slice().sort((a,b)=>(a.deadline||'').localeCompare(b.deadline||''));
   if(tasklistStatusFilter!=='All') list = list.filter(t=>t.status===tasklistStatusFilter);
+  if(tasklistSearchQuery){
+    list = list.filter(t=>{
+      const haystack = [t.task, t.assignedTo, t.status].join(' ').toLowerCase();
+      return haystack.includes(tasklistSearchQuery);
+    });
+  }
   document.getElementById('tasklist-count-tag').textContent = list.length + ' tasks';
 
   const tbody = document.getElementById('tasklist-tbody');
-  if(!list.length){ tbody.innerHTML = `<tr><td colspan="6" class="empty-state">No tasks on record. Add one in Office Registers → Tasks.</td></tr>`; return; }
+  if(!list.length){ tbody.innerHTML = `<tr><td colspan="6" class="empty-state">${tasklistSearchQuery ? 'No tasks match your search.' : 'No tasks on record. Add one in Office Registers → Tasks.'}</td></tr>`; return; }
   tbody.innerHTML = list.map(t=>{
     let daysCell = '<span class="muted">—</span>';
     let gcalCell = '';
@@ -982,14 +1007,21 @@ document.getElementById('ics-export-tasklist').addEventListener('click', ()=>{
   const list = DB.tasks.filter(t=>t.deadline);
   downloadIcs(list.map(t=>({title:'Task due: '+t.task, date:t.deadline, detail:'Assigned: '+(t.assignedTo||'')})), 'task-list.ics');
 });
+document.getElementById('tasklist-search').addEventListener('input', (e)=>{ tasklistSearchQuery = e.target.value.trim().toLowerCase(); renderTaskList(); });
 
 /* ============================================================
    GENERIC REGISTER ENGINE
    ============================================================ */
 let activeReg = 'clients';
+let regSearchQuery = '';
 function renderRegisters(){
   document.getElementById('reg-tabs').innerHTML = REGISTERS.map(r=>`<div class="reg-tab ${r.key===activeReg?'active':''}" data-reg="${r.key}">${r.label}</div>`).join('');
-  document.querySelectorAll('.reg-tab').forEach(t=>t.addEventListener('click',()=>{ activeReg=t.dataset.reg; renderRegPanel(); }));
+  document.querySelectorAll('.reg-tab').forEach(t=>t.addEventListener('click',()=>{
+    activeReg=t.dataset.reg;
+    regSearchQuery='';
+    const si=document.getElementById('reg-search'); if(si) si.value='';
+    renderRegPanel();
+  }));
   const noteEl = document.getElementById('storage-note');
   if(!storageAvailable){
     noteEl.textContent = 'Changes aren\'t saving right now — they will be lost on reload.';
@@ -1071,12 +1103,26 @@ function openRegForm(defKey, existingRow){
   });
 }
 
+function regRowMatchesSearch(row, allCols, query){
+  const haystack = allCols.map(c=>{
+    const v = row[c.key];
+    if(c.type==='clientRef'){ const cl=getClient(v); return cl?(cl.id+' '+cl.name):''; }
+    if(c.type==='caseRef'){ const cs=getCase(v); return cs?(cs.id+' '+cs.title):''; }
+    if(c.type==='date'){ return v?fmtDate(v):''; }
+    return v||'';
+  }).join(' ').toLowerCase();
+  return haystack.includes(query);
+}
+
 function renderRegPanel(){
   const def = regDef(activeReg);
   const panel = document.getElementById('reg-panel');
   const leadCol = def.idPrefix ? {key:'id', label:'ID', type:'id'} : (def.autoField ? {key:def.autoField.key, label:def.autoField.label, type:'id'} : null);
   const allCols = leadCol ? [leadCol, ...def.columns] : def.columns.slice();
   const extra = def.extraColumns || [];
+
+  let rows = DB[def.key];
+  if(regSearchQuery){ rows = rows.filter(row=>regRowMatchesSearch(row, allCols, regSearchQuery)); }
 
   panel.innerHTML = `
     <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
@@ -1087,14 +1133,14 @@ function renderRegPanel(){
       <table>
         <thead><tr>${allCols.map(c=>`<th>${c.label}</th>`).join('')}${extra.map(e=>`<th>${e.label}</th>`).join('')}<th></th></tr></thead>
         <tbody>
-          ${DB[def.key].length ? DB[def.key].map(row=>`<tr>${
+          ${rows.length ? rows.map(row=>`<tr>${
             allCols.map(c=>`<td>${c.type==='id'?`<span class="idchip">${escapeHtml(row[c.key]||'')}</span>`:cellValueHtml(row,c)}</td>`).join('') +
             extra.map(e=>`<td>${e.render(row)}</td>`).join('') +
             `<td style="white-space:nowrap;">
               <button class="btn-ghost" style="padding:3px 9px;font-size:11px;color:var(--maroon);border:1px solid var(--maroon-soft);border-radius:5px;background:none;cursor:pointer;margin-right:4px;" onclick="editRowById('${def.key}','${row.id}')">✎ Edit</button>
               <button class="btn-ghost" style="padding:3px 9px;font-size:11px;color:var(--maroon);border:1px solid var(--maroon-soft);border-radius:5px;background:none;cursor:pointer;" onclick="deleteRow('${def.key}','${row.id}')">✕ Delete</button>
             </td>`
-          }</tr>`).join('') : `<tr><td colspan="${allCols.length+extra.length+1}" class="empty-state">No entries yet — click "+ Add entry" to create the first one.</td></tr>`}
+          }</tr>`).join('') : `<tr><td colspan="${allCols.length+extra.length+1}" class="empty-state">${regSearchQuery ? 'No entries match your search.' : 'No entries yet — click "+ Add entry" to create the first one.'}</td></tr>`}
         </tbody>
       </table>
     </div>`;
@@ -1119,6 +1165,7 @@ function wireLoginAndAdminUI(){
   document.getElementById('staff-admin-login-btn').addEventListener('click', staffAdminLogin);
   document.getElementById('staff-admin-pass-input').addEventListener('keydown', (e)=>{ if(e.key==='Enter') staffAdminLogin(); });
   document.getElementById('staff-add-btn').addEventListener('click', addStaff);
+  document.getElementById('reg-search').addEventListener('input', (e)=>{ regSearchQuery = e.target.value.trim().toLowerCase(); renderRegPanel(); });
 }
 
 async function initApp(){
