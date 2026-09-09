@@ -6,7 +6,6 @@
 <title>Saurabh Arya Law Office — Case Management System</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
   :root{
     --maroon:#740020;
@@ -32,8 +31,21 @@
   .nav{ display:flex; justify-content:center; gap:22px; padding:12px 20px; background:#fff; border-bottom:1px solid var(--grey-line); flex-wrap:wrap; }
   .nav button{ background:none; border:none; font-family:'Inter',sans-serif; font-weight:600; font-size:12.5px; letter-spacing:0.4px; text-transform:uppercase; color:var(--text-muted); cursor:pointer; padding:6px 4px; border-bottom:2px solid transparent; }
   .nav button.active, .nav button:hover{ color:var(--maroon); border-bottom-color:var(--maroon); }
-  .drive-bar{ display:flex; align-items:center; justify-content:center; gap:10px; flex-wrap:wrap; padding:8px 20px; background:var(--pink-tint); font-size:11.5px; color:var(--maroon-dark); font-family:'IBM Plex Mono',monospace; }
-  .drive-bar .btn{ padding:6px 12px; font-size:11px; }
+  .sync-bar{ display:flex; align-items:center; justify-content:center; gap:10px; flex-wrap:wrap; padding:8px 20px; background:var(--pink-tint); font-size:11.5px; color:var(--maroon-dark); font-family:'IBM Plex Mono',monospace; }
+  .sync-bar .btn{ padding:6px 12px; font-size:11px; }
+
+  .modal-overlay{ position:fixed; inset:0; background:rgba(40,0,10,0.55); display:flex; align-items:center; justify-content:center; z-index:1000; padding:16px; }
+  .modal-box{ background:#fff; border-radius:10px; max-width:420px; width:100%; padding:28px 24px; box-shadow:0 20px 50px rgba(0,0,0,0.3); }
+  .modal-box h2{ font-family:'Cormorant Garamond', serif; color:var(--maroon); margin:0 0 6px 0; font-size:24px; }
+  .modal-box p.sub{ color:var(--text-muted); font-size:12.5px; margin:0 0 18px 0; }
+  .modal-box input[type=text],.modal-box input[type=password]{ width:100%; font-family:'IBM Plex Mono',monospace; font-size:16px; letter-spacing:2px; padding:10px 12px; border-radius:6px; border:1px solid var(--grey-line); margin-bottom:10px; }
+  .modal-box .err{ color:var(--danger); font-size:12px; margin:-4px 0 10px 0; min-height:14px; }
+  .modal-actions{ display:flex; gap:8px; justify-content:flex-end; }
+  .staff-row{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 0; border-bottom:1px solid var(--grey-line); font-size:12.5px; }
+  .staff-row:last-child{ border-bottom:none; }
+  .staff-row .pin{ font-family:'IBM Plex Mono',monospace; font-weight:700; color:var(--maroon); }
+  .staff-add-row{ display:flex; gap:8px; margin-top:12px; }
+  .staff-add-row input{ flex:1; font-size:12.5px; padding:7px 9px; border-radius:6px; border:1px solid var(--grey-line); }
 
   .content{ padding:24px 20px 10px; }
 
@@ -148,8 +160,44 @@
     <button class="nav-btn" data-view="cause">Cause List</button>
     <button class="nav-btn" data-view="tasklist">Tasks</button>
     <button class="nav-btn" data-view="registers">Office Registers</button>
+    <button class="nav-btn" id="staff-access-btn" style="margin-left:auto;">🔑 Staff Access</button>
   </div>
-  <div class="drive-bar" id="drive-bar"></div>
+  <div class="sync-bar" id="sync-bar"></div>
+
+  <div id="login-gate" class="modal-overlay" style="display:none;">
+    <div class="modal-box">
+      <h2>Enter your PIN</h2>
+      <p class="sub">Ask the office admin for your PIN if you don't have one yet. Your browser will remember it after this.</p>
+      <input type="password" id="login-pin-input" placeholder="PIN" inputmode="numeric" autocomplete="off">
+      <div class="err" id="login-pin-err"></div>
+      <div class="modal-actions"><button class="btn btn-primary" id="login-pin-submit">Enter</button></div>
+    </div>
+  </div>
+
+  <div id="staff-admin-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-box" style="max-width:480px;">
+      <h2>Staff Access</h2>
+      <p class="sub" id="staff-admin-sub">Enter the admin password to manage staff PINs.</p>
+      <div id="staff-admin-login">
+        <input type="password" id="staff-admin-pass-input" placeholder="Admin password" autocomplete="off">
+        <div class="err" id="staff-admin-err"></div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" id="staff-admin-close">Cancel</button>
+          <button class="btn btn-primary" id="staff-admin-login-btn">Unlock</button>
+        </div>
+      </div>
+      <div id="staff-admin-panel" style="display:none;">
+        <div id="staff-list"></div>
+        <div class="staff-add-row">
+          <input type="text" id="staff-new-name" placeholder="Staff name">
+          <input type="text" id="staff-new-pin" placeholder="PIN (4+ digits)" inputmode="numeric">
+          <button class="btn btn-primary" id="staff-add-btn">+ Add</button>
+        </div>
+        <div class="err" id="staff-add-err"></div>
+        <div class="modal-actions" style="margin-top:14px;"><button class="btn btn-ghost" id="staff-admin-close2">Close</button></div>
+      </div>
+    </div>
+  </div>
 
   <div class="content">
 
@@ -256,143 +304,204 @@ let lastKnownRaw = null;
 let lastSyncedAt = null;
 
 /* ============================================================
-   GOOGLE DRIVE BACKEND
-   Paste your OAuth Client ID below after following the setup
-   instructions. Until then, the app runs on the fallback storage above.
+   STAFF PIN LOGIN + APPS SCRIPT BACKEND
+   Paste your deployed Apps Script Web App URL below (see setup
+   instructions). Until then, the app runs on the fallback storage below.
    ============================================================ */
-const DRIVE_CONFIG = {
-  CLIENT_ID: '332289698606-q8i3veh8v75c1nleo61079dfltv6mbai.apps.googleusercontent.com',
-  SCOPES: 'https://www.googleapis.com/auth/drive',
-  FILE_NAME: 'saurabh-arya-law-office-db.json'
+const BACKEND_CONFIG = {
+  APPS_SCRIPT_URL: 'PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE'
 };
-function isDriveConfigured(){ return DRIVE_CONFIG.CLIENT_ID && DRIVE_CONFIG.CLIENT_ID.indexOf('PASTE_')!==0; }
+function isBackendConfigured(){ return BACKEND_CONFIG.APPS_SCRIPT_URL && BACKEND_CONFIG.APPS_SCRIPT_URL.indexOf('PASTE_')!==0; }
 
-let driveTokenClient = null;
-let driveAccessToken = null;
-let driveFileId = null;
-let driveSignedInEmail = null;
-let driveReady = false;
+const STAFF_SESSION_KEY = 'saurabh-arya-staff-session';
+let staffSession = null; // {pin, staffId, name}
+let backendReady = false;
 
-function waitForGoogleThenInit(){
-  if(typeof google !== 'undefined' && google.accounts && google.accounts.oauth2){ initGoogleSignIn(); }
-  else{ setTimeout(waitForGoogleThenInit, 250); }
+function loadStaffSession(){
+  try{ const raw = localStorage.getItem(STAFF_SESSION_KEY); return raw ? JSON.parse(raw) : null; }catch(e){ return null; }
 }
-function initGoogleSignIn(){
-  if(!isDriveConfigured()) { updateDriveBar(); return; }
-  driveTokenClient = google.accounts.oauth2.initTokenClient({
-    client_id: DRIVE_CONFIG.CLIENT_ID,
-    scope: DRIVE_CONFIG.SCOPES,
-    callback: async (resp)=>{
-      if(resp.error){ console.warn('Google sign-in error', resp); updateDriveBar('error'); return; }
-      driveAccessToken = resp.access_token;
-      await onDriveSignedIn();
+function saveStaffSession(session){
+  staffSession = session;
+  try{ localStorage.setItem(STAFF_SESSION_KEY, JSON.stringify(session)); }catch(e){}
+}
+function clearStaffSession(){
+  staffSession = null;
+  try{ localStorage.removeItem(STAFF_SESSION_KEY); }catch(e){}
+}
+
+async function callBackend(action, params={}){
+  const res = await fetch(BACKEND_CONFIG.APPS_SCRIPT_URL, {
+    method:'POST',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body: JSON.stringify({action, ...params})
+  });
+  return res.json();
+}
+
+function showLoginGate(errMsg){
+  document.getElementById('login-gate').style.display='flex';
+  document.getElementById('login-pin-err').textContent = errMsg||'';
+  document.getElementById('login-pin-input').value='';
+  document.getElementById('login-pin-input').focus();
+}
+function hideLoginGate(){ document.getElementById('login-gate').style.display='none'; }
+
+async function attemptLogin(pin){
+  const errEl = document.getElementById('login-pin-err');
+  errEl.textContent = 'Checking…';
+  try{
+    const resp = await callBackend('login', {pin});
+    if(resp.ok){
+      saveStaffSession({pin, staffId:resp.staffId, name:resp.name});
+      hideLoginGate();
+      await startBackendSync();
+    } else {
+      errEl.textContent = resp.error || 'Invalid PIN';
     }
-  });
-  updateDriveBar();
+  }catch(e){
+    errEl.textContent = 'Could not reach the server. Check your internet connection.';
+  }
 }
-function driveSignIn(){
-  if(!driveTokenClient){ alert('Google sign-in isn\'t finished setting up yet — see the setup instructions.'); return; }
-  driveTokenClient.requestAccessToken({prompt:'consent'});
+
+async function backendLoadDB(){
+  const resp = await callBackend('getData', {pin: staffSession.pin});
+  if(resp.ok===false && resp.error==='unauthorized'){ throw new Error('unauthorized'); }
+  const raw = JSON.stringify(resp.data||{});
+  lastKnownRaw = raw;
+  Object.keys(DB).forEach(k=>{ if(resp.data && resp.data[k]!==undefined) DB[k]=resp.data[k]; });
+  return resp.data && Object.keys(resp.data).length>0;
 }
-function driveSignOut(){
-  driveAccessToken=null; driveFileId=null; driveSignedInEmail=null; driveReady=false;
-  updateDriveBar();
-}
-async function driveFetch(url, options={}){
-  const res = await fetch(url, {...options, headers:{...(options.headers||{}), 'Authorization':'Bearer '+driveAccessToken}});
-  if(res.status===401){ throw new Error('unauthorized'); }
-  return res;
-}
-async function findOrCreateDriveFile(){
-  const q = encodeURIComponent(`name = '${DRIVE_CONFIG.FILE_NAME}' and trashed = false`);
-  const listRes = await driveFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`);
-  const listJson = await listRes.json();
-  if(listJson.files && listJson.files.length){ return listJson.files[0].id; }
-  const metadata = {name: DRIVE_CONFIG.FILE_NAME, mimeType:'application/json'};
-  const boundary = 'law_office_boundary_xyz';
-  const body =
-    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n`+
-    `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(DB)}\r\n`+
-    `--${boundary}--`;
-  const createRes = await driveFetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
-    method:'POST', headers:{'Content-Type':`multipart/related; boundary=${boundary}`}, body
-  });
-  const createJson = await createRes.json();
-  return createJson.id;
-}
-async function driveLoadDB(){
-  const res = await driveFetch(`https://www.googleapis.com/drive/v3/files/${driveFileId}?alt=media`);
-  const text = await res.text();
-  if(!text) return false;
-  lastKnownRaw = text;
-  const parsed = JSON.parse(text);
-  Object.keys(DB).forEach(k=>{ if(parsed[k]!==undefined) DB[k]=parsed[k]; });
-  return true;
-}
-async function drivePersistDB(){
+async function backendPersistDB(){
   const raw = JSON.stringify(DB);
   lastKnownRaw = raw;
-  await driveFetch(`https://www.googleapis.com/upload/drive/v3/files/${driveFileId}?uploadType=media`, {
-    method:'PATCH', headers:{'Content-Type':'application/json'}, body: raw
-  });
+  const resp = await callBackend('saveData', {pin: staffSession.pin, data: raw});
+  if(resp.ok===false){ throw new Error(resp.error||'save failed'); }
   lastSyncedAt = new Date();
 }
-async function fetchDriveUserInfo(){
+async function checkBackendRemoteUpdates(){
+  if(!backendReady) return;
   try{
-    const res = await driveFetch('https://www.googleapis.com/oauth2/v3/userinfo');
-    const json = await res.json();
-    driveSignedInEmail = json.email;
-  }catch(e){ driveSignedInEmail = 'your Google account'; }
-}
-async function onDriveSignedIn(){
-  updateDriveBar('connecting');
-  await fetchDriveUserInfo();
-  driveFileId = await findOrCreateDriveFile();
-  const hadData = await driveLoadDB();
-  if(!hadData && !DB.clients.length){ seedSampleData(); await drivePersistDB(); }
-  driveReady = true;
-  updateDriveBar();
-  rerenderCurrentView();
-  setInterval(checkDriveRemoteUpdates, 6000);
-}
-async function checkDriveRemoteUpdates(){
-  if(!driveReady) return;
-  try{
-    const res = await driveFetch(`https://www.googleapis.com/drive/v3/files/${driveFileId}?alt=media`);
-    const text = await res.text();
-    if(text && text!==lastKnownRaw){
-      lastKnownRaw = text;
-      const parsed = JSON.parse(text);
-      Object.keys(DB).forEach(k=>{ if(parsed[k]!==undefined) DB[k]=parsed[k]; });
+    const resp = await callBackend('getData', {pin: staffSession.pin});
+    if(resp.ok===false && resp.error==='unauthorized'){ throw new Error('unauthorized'); }
+    const raw = JSON.stringify(resp.data||{});
+    if(raw!==lastKnownRaw){
+      lastKnownRaw = raw;
+      Object.keys(DB).forEach(k=>{ if(resp.data && resp.data[k]!==undefined) DB[k]=resp.data[k]; });
       lastSyncedAt = new Date();
       rerenderCurrentView();
     }
   }catch(e){
-    if(e.message==='unauthorized' && driveTokenClient){ driveTokenClient.requestAccessToken({prompt:''}); }
+    if(e.message==='unauthorized'){
+      clearStaffSession();
+      backendReady = false;
+      updateSyncBar();
+      showLoginGate('Your PIN was removed by the admin. Please contact the office admin.');
+    }
   }
 }
-function updateDriveBar(state){
-  const bar = document.getElementById('drive-bar');
+async function startBackendSync(){
+  updateSyncBar('connecting');
+  try{
+    const hadData = await backendLoadDB();
+    if(!hadData && !DB.clients.length){ seedSampleData(); await backendPersistDB(); }
+    backendReady = true;
+    updateSyncBar();
+    rerenderCurrentView();
+    setInterval(checkBackendRemoteUpdates, 6000);
+  }catch(e){
+    if(e.message==='unauthorized'){
+      clearStaffSession();
+      showLoginGate('Your PIN was removed by the admin. Please contact the office admin.');
+    } else {
+      updateSyncBar('error');
+    }
+  }
+}
+function updateSyncBar(state){
+  const bar = document.getElementById('sync-bar');
   if(!bar) return;
-  if(!isDriveConfigured()){
-    bar.innerHTML = `⚙️ Google Drive backend not connected yet — running on ${usingSharedStorage?'shared session storage':'this browser only'}. See setup instructions to enable Drive sync for your whole office.`;
+  if(!isBackendConfigured()){
+    bar.innerHTML = `⚙️ Staff-PIN backend not connected yet — running on ${usingSharedStorage?'shared session storage':'this browser only'}. See setup instructions to enable office-wide sync.`;
     return;
   }
-  if(state==='connecting'){ bar.innerHTML = `Connecting to Google Drive…`; return; }
-  if(state==='error'){ bar.innerHTML = `Google sign-in failed. <button class="btn btn-primary" id="drive-signin-btn">Try again</button>`; }
-  else if(driveReady){
-    bar.innerHTML = `📁 Synced with Google Drive · signed in as ${escapeHtml(driveSignedInEmail||'')} <button class="btn btn-ghost" id="drive-signout-btn">Sign out</button>`;
+  if(state==='connecting'){ bar.innerHTML = `Connecting…`; return; }
+  if(state==='error'){ bar.innerHTML = `Couldn't reach the server. <button class="btn btn-primary" id="sync-retry-btn">Retry</button>`; }
+  else if(backendReady){
+    bar.innerHTML = `📁 Synced · signed in as ${escapeHtml(staffSession.name||'')} <button class="btn btn-ghost" id="sync-switch-btn">Not you? Switch PIN</button>`;
   } else {
-    bar.innerHTML = `<button class="btn btn-primary" id="drive-signin-btn">Sign in with Google</button> to sync all registers via Google Drive with your staff`;
+    bar.innerHTML = `Not signed in.`;
   }
-  const signinBtn = document.getElementById('drive-signin-btn'); if(signinBtn) signinBtn.addEventListener('click', driveSignIn);
-  const signoutBtn = document.getElementById('drive-signout-btn'); if(signoutBtn) signoutBtn.addEventListener('click', driveSignOut);
+  const retryBtn = document.getElementById('sync-retry-btn'); if(retryBtn) retryBtn.addEventListener('click', startBackendSync);
+  const switchBtn = document.getElementById('sync-switch-btn'); if(switchBtn) switchBtn.addEventListener('click', ()=>{ clearStaffSession(); backendReady=false; showLoginGate(); });
+}
+
+/* ---------- Staff admin panel (add/remove PINs) ---------- */
+let staffAdminPassword = null;
+function openStaffAdminModal(){
+  document.getElementById('staff-admin-modal').style.display='flex';
+  document.getElementById('staff-admin-login').style.display = staffAdminPassword ? 'none' : 'block';
+  document.getElementById('staff-admin-panel').style.display = staffAdminPassword ? 'block' : 'none';
+  if(staffAdminPassword) refreshStaffList();
+  document.getElementById('staff-admin-pass-input').value='';
+  document.getElementById('staff-admin-err').textContent='';
+}
+function closeStaffAdminModal(){ document.getElementById('staff-admin-modal').style.display='none'; }
+async function staffAdminLogin(){
+  const pass = document.getElementById('staff-admin-pass-input').value;
+  const errEl = document.getElementById('staff-admin-err');
+  errEl.textContent = 'Checking…';
+  try{
+    const resp = await callBackend('adminLogin', {password: pass});
+    if(resp.ok){
+      staffAdminPassword = pass;
+      document.getElementById('staff-admin-login').style.display='none';
+      document.getElementById('staff-admin-panel').style.display='block';
+      refreshStaffList();
+    } else { errEl.textContent = resp.error||'Wrong password'; }
+  }catch(e){ errEl.textContent = 'Could not reach the server.'; }
+}
+async function refreshStaffList(){
+  const listEl = document.getElementById('staff-list');
+  listEl.innerHTML = 'Loading…';
+  try{
+    const resp = await callBackend('adminListStaff', {password: staffAdminPassword});
+    if(!resp.ok){ listEl.innerHTML = escapeHtml(resp.error||'Error'); return; }
+    listEl.innerHTML = resp.staff.length ? resp.staff.map(s=>`
+      <div class="staff-row">
+        <div>${escapeHtml(s.name)} — <span class="pin">${escapeHtml(s.pin)}</span></div>
+        <button class="btn btn-ghost" data-remove-staff="${s.id}">Remove</button>
+      </div>`).join('') : '<div class="muted" style="padding:8px 0;">No staff added yet.</div>';
+    listEl.querySelectorAll('[data-remove-staff]').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        if(!confirm('Remove this staff member\'s access immediately?')) return;
+        await callBackend('adminRemoveStaff', {password: staffAdminPassword, staffId: btn.getAttribute('data-remove-staff')});
+        refreshStaffList();
+      });
+    });
+  }catch(e){ listEl.innerHTML = 'Could not reach the server.'; }
+}
+async function addStaff(){
+  const name = document.getElementById('staff-new-name').value.trim();
+  const pin = document.getElementById('staff-new-pin').value.trim();
+  const errEl = document.getElementById('staff-add-err');
+  if(!name || !pin){ errEl.textContent='Enter a name and PIN.'; return; }
+  if(pin.length<4){ errEl.textContent='PIN should be at least 4 digits.'; return; }
+  errEl.textContent = 'Adding…';
+  try{
+    const resp = await callBackend('adminAddStaff', {password: staffAdminPassword, name, pin});
+    if(resp.ok){
+      document.getElementById('staff-new-name').value='';
+      document.getElementById('staff-new-pin').value='';
+      errEl.textContent='';
+      refreshStaffList();
+    } else { errEl.textContent = resp.error||'Could not add staff.'; }
+  }catch(e){ errEl.textContent = 'Could not reach the server.'; }
 }
 
 async function persistDB(){
-  if(driveReady){
-    try{ await drivePersistDB(); storageAvailable=true; return; }
-    catch(e){ console.warn('Drive save failed, falling back.', e); }
+  if(backendReady){
+    try{ await backendPersistDB(); storageAvailable=true; return; }
+    catch(e){ console.warn('Backend save failed, falling back.', e); }
   }
   const raw = JSON.stringify(DB);
   lastKnownRaw = raw;
@@ -427,7 +536,7 @@ async function loadDB(){
   }catch(e){ return false; }
 }
 async function checkForRemoteUpdates(){
-  if(driveReady || !usingSharedStorage) return;
+  if(backendReady || !usingSharedStorage) return;
   try{
     const result = await window.storage.get(STORAGE_KEY, true);
     if(result && result.value && result.value !== lastKnownRaw){
@@ -993,11 +1102,34 @@ function renderRegPanel(){
 /* ============================================================
    INIT
    ============================================================ */
+function wireLoginAndAdminUI(){
+  document.getElementById('login-pin-submit').addEventListener('click', ()=>{
+    const pin = document.getElementById('login-pin-input').value.trim();
+    if(!pin){ document.getElementById('login-pin-err').textContent='Enter your PIN.'; return; }
+    attemptLogin(pin);
+  });
+  document.getElementById('login-pin-input').addEventListener('keydown', (e)=>{ if(e.key==='Enter') document.getElementById('login-pin-submit').click(); });
+  document.getElementById('staff-access-btn').addEventListener('click', openStaffAdminModal);
+  document.getElementById('staff-admin-close').addEventListener('click', closeStaffAdminModal);
+  document.getElementById('staff-admin-close2').addEventListener('click', closeStaffAdminModal);
+  document.getElementById('staff-admin-login-btn').addEventListener('click', staffAdminLogin);
+  document.getElementById('staff-admin-pass-input').addEventListener('keydown', (e)=>{ if(e.key==='Enter') staffAdminLogin(); });
+  document.getElementById('staff-add-btn').addEventListener('click', addStaff);
+}
+
 async function initApp(){
-  updateDriveBar();
-  waitForGoogleThenInit();
+  wireLoginAndAdminUI();
+  updateSyncBar();
+  if(isBackendConfigured()){
+    staffSession = loadStaffSession();
+    if(staffSession){
+      await startBackendSync();
+    } else {
+      showLoginGate();
+    }
+  }
   const hadSavedData = await loadDB();
-  if(!hadSavedData){ seedSampleData(); await persistDB(); }
+  if(!hadSavedData && !backendReady){ seedSampleData(); await persistDB(); }
   goto('dashboard');
   if(usingSharedStorage){ setInterval(checkForRemoteUpdates, 4000); }
 }
