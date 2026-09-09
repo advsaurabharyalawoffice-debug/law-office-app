@@ -171,6 +171,9 @@
       <input type="password" id="login-pin-input" placeholder="PIN" inputmode="numeric" autocomplete="off">
       <div class="err" id="login-pin-err"></div>
       <div class="modal-actions"><button class="btn btn-primary" id="login-pin-submit">Enter</button></div>
+      <div style="text-align:center;margin-top:16px;">
+        <button class="btn btn-ghost" id="login-gate-staff-access-btn" style="font-size:11px;">🔑 Admin? Manage Staff Access</button>
+      </div>
     </div>
   </div>
 
@@ -1110,6 +1113,7 @@ function wireLoginAndAdminUI(){
   });
   document.getElementById('login-pin-input').addEventListener('keydown', (e)=>{ if(e.key==='Enter') document.getElementById('login-pin-submit').click(); });
   document.getElementById('staff-access-btn').addEventListener('click', openStaffAdminModal);
+  document.getElementById('login-gate-staff-access-btn').addEventListener('click', openStaffAdminModal);
   document.getElementById('staff-admin-close').addEventListener('click', closeStaffAdminModal);
   document.getElementById('staff-admin-close2').addEventListener('click', closeStaffAdminModal);
   document.getElementById('staff-admin-login-btn').addEventListener('click', staffAdminLogin);
