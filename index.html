@@ -35,7 +35,7 @@
   .sync-bar .btn{ padding:6px 12px; font-size:11px; }
 
   .modal-overlay{ position:fixed; inset:0; background:rgba(40,0,10,0.55); display:flex; align-items:center; justify-content:center; z-index:1000; padding:16px; }
-  .modal-box{ background:#fff; border-radius:10px; max-width:420px; width:100%; padding:28px 24px; box-shadow:0 20px 50px rgba(0,0,0,0.3); }
+  .modal-box{ background:#fff; border-radius:10px; max-width:420px; width:100%; padding:28px 24px; box-shadow:0 20px 50px rgba(0,0,0,0.3); max-height:calc(100vh - 32px); overflow-y:auto; }
   .modal-box h2{ font-family:'Cormorant Garamond', serif; color:var(--maroon); margin:0 0 6px 0; font-size:24px; }
   .modal-box p.sub{ color:var(--text-muted); font-size:12.5px; margin:0 0 18px 0; }
   .modal-box input[type=text],.modal-box input[type=password]{ width:100%; font-family:'IBM Plex Mono',monospace; font-size:16px; letter-spacing:2px; padding:10px 12px; border-radius:6px; border:1px solid var(--grey-line); margin-bottom:10px; }
@@ -231,7 +231,7 @@
         <div style="grid-column:1/-1;"><label>Proceeding</label><input type="text" id="proceeding-new-text" placeholder="What happened on this date"></div>
       </div>
       <div class="err" id="proceeding-add-err"></div>
-      <div class="modal-actions">
+      <div class="modal-actions" style="position:sticky;bottom:0;background:#fff;padding:10px 24px;margin:0 -24px -28px;box-shadow:0 -8px 12px -8px rgba(0,0,0,0.12);">
         <button class="btn btn-ghost" id="proceedings-modal-close">Close</button>
         <button class="btn btn-primary" id="proceeding-add-btn">+ Add entry</button>
       </div>
