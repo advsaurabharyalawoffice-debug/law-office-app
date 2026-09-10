@@ -1192,7 +1192,13 @@ function openRegForm(defKey, existingRow){
     const fid = `f-${def.key}-${col.key}`;
     return `<div><label>${escapeHtml(col.label)}${col.required?' *':''}</label>${fieldInputHtml(fid,col, existingRow?existingRow[col.key]:undefined)}</div>`;
   }).join('');
-  const proceedingsNote = def.columns.some(col=>col.type==='proceedings') ? `<div class="note-box" style="grid-column:1/-1;">📅 Proceedings are recorded date-wise from the table below, after saving — use the "Proceedings" button on the case's row.</div>` : '';
+  const isNewCaseForm = def.key==='cases' && !existingRow;
+  const proceedingsNote = isNewCaseForm ? `
+    <div style="grid-column:1/-1;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--maroon-dark);margin-top:4px;">📅 FIRST PROCEEDING (OPTIONAL — YOU CAN ADD MORE LATER)</div>
+    <div><label>Proceeding Date</label><input type="date" id="f-cases-firstProceedingDate" value="${escapeHtml(new Date().toISOString().slice(0,10))}"></div>
+    <div><label>Written By</label><input type="text" id="f-cases-firstProceedingBy" placeholder="Staff name" value="${escapeHtml((typeof staffSession!=='undefined' && staffSession && staffSession.name) ? staffSession.name : '')}"></div>
+    <div style="grid-column:1/-1;"><label>What happened on this date</label><input type="text" id="f-cases-firstProceedingText" placeholder="e.g. Matter listed, adjourned to next date"></div>
+  ` : (def.columns.some(col=>col.type==='proceedings') ? `<div class="note-box" style="grid-column:1/-1;">📅 Use the "Proceedings" button on this case's row to add further dated entries.</div>` : '');
   wrap.innerHTML = `<div class="form-grid">${fields}${proceedingsNote}
     <div class="form-actions">
       <button class="btn btn-ghost" id="reg-cancel">Cancel</button>
@@ -1213,6 +1219,15 @@ function openRegForm(defKey, existingRow){
     if(def.autoField && !existingRow){ row[def.autoField.key] = def.autoField.generate(row); }
     if(!existingRow){
       if(def.key==='cases' && row.proceedings===undefined) row.proceedings = [];
+      if(isNewCaseForm){
+        const pDateEl = document.getElementById('f-cases-firstProceedingDate');
+        const pByEl = document.getElementById('f-cases-firstProceedingBy');
+        const pTextEl = document.getElementById('f-cases-firstProceedingText');
+        const pDate = pDateEl ? pDateEl.value : '';
+        const pBy = pByEl ? pByEl.value.trim() : '';
+        const pText = pTextEl ? pTextEl.value.trim() : '';
+        if(pDate && pText){ row.proceedings.push({id:uid(), date:pDate, by:pBy, text:pText}); }
+      }
       DB[def.key].push(row);
     }
     await persistDB();
