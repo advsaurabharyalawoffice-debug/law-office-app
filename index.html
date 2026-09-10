@@ -220,6 +220,24 @@
     </div>
   </div>
 
+  <div id="proceedings-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-box" style="max-width:560px;">
+      <h2 id="proceedings-modal-title">Proceedings</h2>
+      <p class="sub" id="proceedings-modal-sub">One entry per date — any staff member attending on that date can add what happened.</p>
+      <div id="proceedings-list" style="max-height:260px;overflow-y:auto;margin-bottom:14px;"></div>
+      <div class="form-grid" style="grid-template-columns:130px 110px 1fr;margin-bottom:8px;">
+        <div><label>Date</label><input type="date" id="proceeding-new-date"></div>
+        <div><label>Written By</label><input type="text" id="proceeding-new-by" placeholder="Staff name"></div>
+        <div><label>Proceeding</label><input type="text" id="proceeding-new-text" placeholder="What happened on this date"></div>
+      </div>
+      <div class="err" id="proceeding-add-err"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="proceedings-modal-close">Close</button>
+        <button class="btn btn-primary" id="proceeding-add-btn">+ Add entry</button>
+      </div>
+    </div>
+  </div>
+
   <div class="content">
 
     <div id="view-dashboard">
@@ -242,7 +260,7 @@
         <div class="dash-panel"><h3>📋 Today's Cases</h3><div class="dash-list" id="dashboard-today-cases"></div></div>
         <div class="dash-panel"><h3>✅ Today's Tasks</h3><div class="dash-list" id="dashboard-today-tasks"></div></div>
         <div class="dash-panel"><h3>⏰ Upcoming Deadlines</h3><div class="dash-list" id="dashboard-deadlines"></div></div>
-        <div class="dash-panel"><h3>📝 Case Remarks / Directions</h3><div class="dash-list" id="dashboard-case-remarks"></div></div>
+        <div class="dash-panel"><h3>📅 Latest Case Proceedings</h3><div class="dash-list" id="dashboard-case-remarks"></div></div>
       </div>
       <div class="export-line"><button class="btn btn-ghost" id="export-all-ics">⤓ Export full diary (.ics)</button></div>
 
@@ -265,7 +283,7 @@
     <div id="view-cause" style="display:none;">
       <a class="back-link" data-goto="dashboard">← Back to dashboard</a>
       <h2 class="section-title">Cause List Tracker <span class="tag" id="cause-count-tag"></span></h2>
-      <div class="note-box">Pulled live from the Case Master register's "Next Hearing Date" — add or update a case there to change this list. Remarks can be typed directly below by anyone and are saved automatically.</div>
+      <div class="note-box">Pulled live from the Case Master register's "Next Hearing Date" — add or update a case there to change this list. Proceedings are recorded date-wise and can be added by any staff member attending that date.</div>
       <div class="toolbar">
         <input type="text" id="cause-search" class="remarks-input" style="max-width:300px;" placeholder="🔍 Search by case, client, court, stage, remarks...">
       </div>
@@ -273,7 +291,7 @@
       <div class="export-bar"><button class="btn btn-ghost" id="ics-export-cause">⤓ Export .ics</button></div>
       <div class="panel-box">
         <table>
-          <thead><tr><th>Date</th><th>Case ID</th><th>Case No.</th><th>Title</th><th>Client</th><th>Court / Room</th><th>Stage</th><th>Remarks / Directions</th><th></th></tr></thead>
+          <thead><tr><th>Date</th><th>Case ID</th><th>Case No.</th><th>Title</th><th>Client</th><th>Court / Room</th><th>Stage</th><th>Proceedings</th><th></th></tr></thead>
           <tbody id="cause-tbody"></tbody>
         </table>
       </div>
@@ -405,6 +423,7 @@ async function backendLoadDB(){
   const raw = JSON.stringify(resp.data||{});
   lastKnownRaw = raw;
   Object.keys(DB).forEach(k=>{ if(resp.data && resp.data[k]!==undefined) DB[k]=resp.data[k]; });
+  migrateDB();
   return resp.data && Object.keys(resp.data).length>0;
 }
 async function backendPersistDB(){
@@ -423,6 +442,7 @@ async function checkBackendRemoteUpdates(){
     if(raw!==lastKnownRaw){
       lastKnownRaw = raw;
       Object.keys(DB).forEach(k=>{ if(resp.data && resp.data[k]!==undefined) DB[k]=resp.data[k]; });
+      migrateDB();
       lastSyncedAt = new Date();
       rerenderCurrentView();
     }
@@ -567,12 +587,28 @@ async function persistDB(){
     console.warn('Could not save — changes will not persist / sync.', e);
   }
 }
+function migrateDB(){
+  // Forward-compatible migration: old task records simply receive an empty remarks field.
+  DB.tasks.forEach(t=>{ if(t.remarks===undefined) t.remarks=''; });
+  // Migration: Case Master now records dated Proceedings instead of one Remarks line,
+  // and "Engaged For" moved from Client Master onto each Case.
+  DB.cases.forEach(c=>{
+    if(c.proceedings===undefined){
+      c.proceedings = [];
+      if(c.remarks){ c.proceedings.push({id:uid(), date:c.nextDate||new Date().toISOString().slice(0,10), by:'', text:c.remarks}); }
+    }
+    if(c.engagedFor===undefined){
+      const cl = getClient(c.clientId);
+      c.engagedFor = (cl && cl.engagedFor) ? cl.engagedFor : '';
+    }
+    delete c.remarks;
+  });
+}
 function mergeIntoDB(parsed){
   if(!parsed || typeof parsed!=='object') return false;
   const keys = ['clients','cases','drafts','certifiedCopies','pf','notices','appointments','tasks','bankPanel','counters'];
   keys.forEach(k=>{ if(parsed[k]!==undefined) DB[k]=Array.isArray(parsed[k]) ? parsed[k] : (k==='counters' ? parsed[k] : DB[k]); });
-  // Forward-compatible migration: old task records simply receive an empty remarks field.
-  DB.tasks.forEach(t=>{ if(t.remarks===undefined) t.remarks=''; });
+  migrateDB();
   return keys.some(k=>parsed[k]!==undefined);
 }
 
@@ -604,6 +640,7 @@ async function checkForRemoteUpdates(){
       lastKnownRaw = result.value;
       const parsed = JSON.parse(result.value);
       Object.keys(DB).forEach(k=>{ if(parsed[k]!==undefined) DB[k]=parsed[k]; });
+      migrateDB();
       lastSyncedAt = new Date();
       rerenderCurrentView();
     }
@@ -689,7 +726,6 @@ const REGISTERS = [
       {key:'parentage', label:'Parentage (S/o, D/o, W/o)', type:'text'},
       {key:'address', label:'Address', type:'text'},
       {key:'phone', label:'Contact Details', type:'text'},
-      {key:'engagedFor', label:'Engaged For', type:'text'},
       {key:'engagementDate', label:'Engagement Date', type:'date'}
     ],
     extraColumns:[
@@ -707,9 +743,10 @@ const REGISTERS = [
       {key:'roomNo', label:'Room No.', type:'text'},
       {key:'type', label:'Case Type', type:'text'},
       {key:'clientId', label:'Client', type:'clientRef', required:true},
+      {key:'engagedFor', label:'Engaged For', type:'text'},
       {key:'stage', label:'Stage', type:'select', options:['Filing','Pleadings','Miscellaneous Appearances','Arguments','Evidence','Final Arguments','Disposal']},
       {key:'nextDate', label:'Next Hearing Date', type:'date'},
-      {key:'remarks', label:'Remarks', type:'text'}
+      {key:'proceedings', label:'Proceedings', type:'proceedings'}
     ]
   },
   { key:'drafts', label:'Drafting Register', idPrefix:null,
@@ -812,29 +849,29 @@ const CALENDAR_SOURCES = [
    SEED DATA — only used the very first time, before anyone has saved data
    ============================================================ */
 function seedSampleData(){
-  function addClient(name,parentage,address,phone,engagedFor,engagementDate){
+  function addClient(name,parentage,address,phone,engagementDate){
     const id = nextRegId('CLI','clients');
-    DB.clients.push({id,name,parentage,address,phone,engagedFor,engagementDate});
+    DB.clients.push({id,name,parentage,address,phone,engagementDate});
     return id;
   }
-  function addCase(title,caseNo,court,roomNo,type,clientId,stage,nextDate,remarks){
+  function addCase(title,caseNo,court,roomNo,type,clientId,engagedFor,stage,nextDate,proceedings){
     const id = nextRegId('CASE','cases');
-    DB.cases.push({id,title,caseNo,court,roomNo,type,clientId,stage,nextDate,remarks:remarks||''});
+    DB.cases.push({id,title,caseNo,court,roomNo,type,clientId,engagedFor:engagedFor||'',stage,nextDate,proceedings:proceedings||[]});
     return id;
   }
-  const cli1 = addClient('Ajeya Hudda','','','','Civil & criminal representation', addDays(-200));
-  const cli2 = addClient('Smt. Darshana Devi','','','','Maintenance proceedings', addDays(-150));
-  const cli3 = addClient('Raju & Kavita','','','','Criminal defence', addDays(-90));
-  const cli4 = addClient('Rajnesh','','','','Matrimonial / DV Act matter', addDays(-60));
-  const cli5 = addClient('Health Voyage Global','','','','Trademark registration', addDays(-30));
-  const cli6 = addClient('Mrs. Himanshi','','','','Matrimonial cruelty & maintenance notice', addDays(-20));
+  const cli1 = addClient('Ajeya Hudda','','','', addDays(-200));
+  const cli2 = addClient('Smt. Darshana Devi','','','', addDays(-150));
+  const cli3 = addClient('Raju & Kavita','','','', addDays(-90));
+  const cli4 = addClient('Rajnesh','','','', addDays(-60));
+  const cli5 = addClient('Health Voyage Global','','','', addDays(-30));
+  const cli6 = addClient('Mrs. Himanshi','','','', addDays(-20));
 
-  const case1 = addCase('Ajeya Hudda v. Kamlesh Devi','CS No. 453/2019','Rohini Courts','','Civil', cli1,'Arguments', addDays(4), 'Awaiting rejoinder to O.VII R.11 opposition.');
-  const case2 = addCase('Ajeya Hudda v. Satbir Singh','CC No. 2317/19','Rohini Courts','','Criminal Complaint', cli1,'Evidence', addDays(11), '');
-  const case3 = addCase('Darshana Devi — Maintenance','420/SC/DC/NW/2022','District Court NW','','Maintenance (S.125)', cli2,'Miscellaneous Appearances', addDays(2), 'Compliance report pending.');
-  const case4 = addCase('State v. Raju & Kavita','FIR No. 195/2025','PS Kotwali / Sessions','','Criminal (BNS/POCSO)', cli3,'Arguments', addDays(9), '');
-  const case5 = addCase('Rajnesh v. Neha','DV Act Maintenance','District Court','','Matrimonial / DV Act', cli4,'Pleadings', addDays(6), 'Rebuttal to superseding affidavit format due.');
-  const case6 = addCase('HEALTH VOYAGE GLOBAL — Trademark','App. No. 7839406','Trade Marks Registry','','Trademark', cli5,'Filing', addDays(14), '');
+  const case1 = addCase('Ajeya Hudda v. Kamlesh Devi','CS No. 453/2019','Rohini Courts','','Civil', cli1,'Civil & criminal representation','Arguments', addDays(4), [{id:uid(),date:addDays(-16),by:'Self',text:'Awaiting rejoinder to O.VII R.11 opposition.'}]);
+  const case2 = addCase('Ajeya Hudda v. Satbir Singh','CC No. 2317/19','Rohini Courts','','Criminal Complaint', cli1,'Civil & criminal representation','Evidence', addDays(11), []);
+  const case3 = addCase('Darshana Devi — Maintenance','420/SC/DC/NW/2022','District Court NW','','Maintenance (S.125)', cli2,'Maintenance proceedings','Miscellaneous Appearances', addDays(2), [{id:uid(),date:addDays(-28),by:'Self',text:'Compliance report pending.'}]);
+  const case4 = addCase('State v. Raju & Kavita','FIR No. 195/2025','PS Kotwali / Sessions','','Criminal (BNS/POCSO)', cli3,'Criminal defence','Arguments', addDays(9), []);
+  const case5 = addCase('Rajnesh v. Neha','DV Act Maintenance','District Court','','Matrimonial / DV Act', cli4,'Matrimonial / DV Act matter','Pleadings', addDays(6), [{id:uid(),date:addDays(-6),by:'Self',text:'Rebuttal to superseding affidavit format due.'}]);
+  const case6 = addCase('HEALTH VOYAGE GLOBAL — Trademark','App. No. 7839406','Trade Marks Registry','','Trademark', cli5,'Trademark registration','Filing', addDays(14), []);
 
   DB.drafts.push(
     {id:uid(), clientId:cli1, docType:'Rejoinder to O.VII R.11 application', assignedTo:'Self', status:'In Progress', deadline:addDays(4), driveLink:'', remarks:''},
@@ -909,11 +946,12 @@ function renderDashboardPanels(){
   DB.tasks.forEach(t=>{if(t.deadline && t.deadline>=today && t.status!=='Done') deadlineRows.push({date:t.deadline,title:'Task: '+(t.task||''),remarks:t.remarks||''});});
   DB.pf.forEach(x=>{if(x.filingDate && x.filingDate>=today) deadlineRows.push({date:x.filingDate,title:'PF: '+(x.summoningFor||''),remarks:x.remarks||''});});
   deadlineRows.sort((a,b)=>a.date.localeCompare(b.date));
-  const remarks=DB.cases.filter(c=>c.remarks).sort((a,b)=>(a.nextDate||'').localeCompare(b.nextDate||'')).slice(0,12);
-  document.getElementById('dashboard-today-cases').innerHTML=cases.length?cases.map(c=>`<div class="dash-item"><strong>${escapeHtml(c.id)} — ${escapeHtml(c.title)}</strong><div class="meta">${escapeHtml(c.court||'')} ${c.roomNo?'· Room '+escapeHtml(c.roomNo):''}</div><div class="remarks">${escapeHtml(c.remarks||'Add remarks in Cause List')}</div></div>`).join(''):dashboardEmpty('No hearings scheduled today.');
+  function latestProceeding(c){ const list=Array.isArray(c.proceedings)?c.proceedings:[]; return list.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''))[0]; }
+  const withProceedings=DB.cases.filter(c=>Array.isArray(c.proceedings)&&c.proceedings.length).sort((a,b)=>{ const la=latestProceeding(a), lb=latestProceeding(b); return ((lb&&lb.date)||'').localeCompare((la&&la.date)||''); }).slice(0,12);
+  document.getElementById('dashboard-today-cases').innerHTML=cases.length?cases.map(c=>{ const lp=latestProceeding(c); return `<div class="dash-item"><strong>${escapeHtml(c.id)} — ${escapeHtml(c.title)}</strong><div class="meta">${escapeHtml(c.court||'')} ${c.roomNo?'· Room '+escapeHtml(c.roomNo):''}</div><div class="remarks">${lp?escapeHtml(fmtDate(lp.date)+': '+lp.text):'No proceedings recorded yet'}</div><div style="margin-top:4px;"><button type="button" class="btn-ghost" style="padding:3px 9px;font-size:11px;color:var(--maroon);border:1px solid var(--maroon-soft);border-radius:5px;background:none;cursor:pointer;" onclick="openProceedingsModal('${c.id}')">📅 Proceedings</button></div></div>`; }).join(''):dashboardEmpty('No hearings scheduled today.');
   document.getElementById('dashboard-today-tasks').innerHTML=tasks.length?tasks.map(t=>`<div class="dash-item"><strong>${escapeHtml(t.task)}</strong><div class="meta">${escapeHtml(t.assignedTo||'Unassigned')} · ${escapeHtml(t.status||'')}</div><div class="remarks">${escapeHtml(t.remarks||'No remarks')}</div></div>`).join(''):dashboardEmpty('No tasks due today.');
   document.getElementById('dashboard-deadlines').innerHTML=deadlineRows.length?deadlineRows.slice(0,12).map(x=>`<div class="dash-item"><div class="deadline">${escapeHtml(fmtDate(x.date))}</div><strong>${escapeHtml(x.title)}</strong><div class="remarks">${escapeHtml(x.remarks||'')}</div></div>`).join(''):dashboardEmpty('No upcoming deadlines.');
-  document.getElementById('dashboard-case-remarks').innerHTML=remarks.length?remarks.map(c=>`<div class="dash-item"><strong>${escapeHtml(c.id)} — ${escapeHtml(c.title)}</strong><div class="meta">${c.nextDate?escapeHtml(fmtDate(c.nextDate)):'No hearing date'}</div><div class="remarks">${escapeHtml(c.remarks)}</div></div>`).join(''):dashboardEmpty('No case remarks recorded.');
+  document.getElementById('dashboard-case-remarks').innerHTML=withProceedings.length?withProceedings.map(c=>{ const lp=latestProceeding(c); return `<div class="dash-item"><strong>${escapeHtml(c.id)} — ${escapeHtml(c.title)}</strong><div class="meta">${lp?escapeHtml(fmtDate(lp.date))+(lp.by?' · '+escapeHtml(lp.by):''):'No hearing date'}</div><div class="remarks">${escapeHtml(lp?lp.text:'')}</div></div>`; }).join(''):dashboardEmpty('No case proceedings recorded yet.');
 }
 
 function renderCalendar(){
@@ -993,7 +1031,8 @@ function renderCause(){
   if(causeSearchQuery){
     list = list.filter(c=>{
       const cl = getClient(c.clientId);
-      const haystack = [c.id, c.caseNo, c.title, cl?cl.name:'', c.court, c.roomNo, c.stage, c.remarks].join(' ').toLowerCase();
+      const proceedingsText = Array.isArray(c.proceedings) ? c.proceedings.map(p=>`${p.date||''} ${p.by||''} ${p.text||''}`).join(' ') : '';
+      const haystack = [c.id, c.caseNo, c.title, cl?cl.name:'', c.court, c.roomNo, c.stage, c.engagedFor, proceedingsText].join(' ').toLowerCase();
       return haystack.includes(causeSearchQuery);
     });
   }
@@ -1003,6 +1042,7 @@ function renderCause(){
   if(!list.length){ tbody.innerHTML = `<tr><td colspan="9" class="empty-state">${causeSearchQuery ? 'No hearings match your search.' : 'No hearings on record. Add a case with a next hearing date in Case Master.'}</td></tr>`; return; }
   tbody.innerHTML = list.map(c=>{
     const cl = getClient(c.clientId);
+    const pcount = Array.isArray(c.proceedings) ? c.proceedings.length : 0;
     return `<tr>
       <td>${fmtDate(c.nextDate)}</td>
       <td><span class="idchip">${c.id}</span></td>
@@ -1011,16 +1051,10 @@ function renderCause(){
       <td>${cl?escapeHtml(cl.id+' — '+cl.name):'—'}</td>
       <td>${escapeHtml(c.court)}${c.roomNo?' / Rm '+escapeHtml(c.roomNo):''}</td>
       <td><span class="status-pill ${statusPillClass(c.stage)}">${escapeHtml(c.stage||'—')}</span></td>
-      <td><input type="text" class="remarks-input" data-caseid="${c.id}" value="${escapeHtml(c.remarks||'')}" placeholder="Add remarks / directions"></td>
+      <td><button type="button" class="btn-ghost" style="padding:4px 10px;font-size:11px;color:var(--maroon);border:1px solid var(--maroon-soft);border-radius:5px;background:none;cursor:pointer;white-space:nowrap;" onclick="openProceedingsModal('${c.id}')">📅 ${pcount?('Proceedings ('+pcount+')'):'Add proceeding'}</button></td>
       <td><a class="gcal-link" style="font-size:11px;font-weight:700;color:var(--maroon);" target="_blank" href="${gcalLink('Hearing: '+c.id+' — '+c.title, c.nextDate, c.court)}">+ GCal</a></td>
     </tr>`;
   }).join('');
-  document.querySelectorAll('.remarks-input').forEach(inp=>{
-    inp.addEventListener('change', async (e)=>{
-      const cs = getCase(e.target.dataset.caseid);
-      if(cs){ cs.remarks = e.target.value; await persistDB(); }
-    });
-  });
 }
 document.getElementById('ics-export-cause').addEventListener('click', ()=>{
   const list = DB.cases.filter(c=>c.nextDate);
@@ -1135,6 +1169,11 @@ function cellValueHtml(row, col){
   if(col.type==='date'){ return v?fmtDate(v):'<span class="muted">—</span>'; }
   if(col.type==='url'){ return v?`<a class="drive-link" href="${escapeHtml(v)}" target="_blank">Open ↗</a>`:'<span class="muted">—</span>'; }
   if(col.type==='select'){ return v?`<span class="status-pill ${statusPillClass(v)}">${escapeHtml(v)}</span>`:'<span class="muted">—</span>'; }
+  if(col.type==='proceedings'){
+    const list = Array.isArray(v) ? v : [];
+    const label = list.length ? `📅 Proceedings (${list.length})` : '📅 Add proceeding';
+    return `<button type="button" class="btn-ghost" style="padding:4px 10px;font-size:11px;color:var(--maroon);border:1px solid var(--maroon-soft);border-radius:5px;background:none;cursor:pointer;white-space:nowrap;" onclick="openProceedingsModal('${row.id}')">${label}</button>`;
+  }
   return v ? escapeHtml(v) : '<span class="muted">—</span>';
 }
 
@@ -1148,11 +1187,13 @@ function openRegForm(defKey, existingRow){
   const wrap = document.getElementById('reg-form-wrap');
   const editingKey = existingRow ? existingRow.id : 'new';
   if(wrap.innerHTML && wrap.dataset.editing === editingKey){ wrap.innerHTML=''; wrap.dataset.editing=''; return; }
-  const fields = def.columns.map(col=>{
+  const formCols = def.columns.filter(col=>col.type!=='proceedings');
+  const fields = formCols.map(col=>{
     const fid = `f-${def.key}-${col.key}`;
     return `<div><label>${escapeHtml(col.label)}${col.required?' *':''}</label>${fieldInputHtml(fid,col, existingRow?existingRow[col.key]:undefined)}</div>`;
   }).join('');
-  wrap.innerHTML = `<div class="form-grid">${fields}
+  const proceedingsNote = def.columns.some(col=>col.type==='proceedings') ? `<div class="note-box" style="grid-column:1/-1;">📅 Proceedings are recorded date-wise from the table below, after saving — use the "Proceedings" button on the case's row.</div>` : '';
+  wrap.innerHTML = `<div class="form-grid">${fields}${proceedingsNote}
     <div class="form-actions">
       <button class="btn btn-ghost" id="reg-cancel">Cancel</button>
       <button class="btn btn-primary" id="reg-save">${existingRow?'Update entry':'Save entry'}</button>
@@ -1162,7 +1203,7 @@ function openRegForm(defKey, existingRow){
   document.getElementById('reg-save').addEventListener('click', async ()=>{
     const row = existingRow || { id: def.idPrefix ? nextRegId(def.idPrefix, def.key) : uid() };
     let missing = false;
-    def.columns.forEach(col=>{
+    formCols.forEach(col=>{
       const el = document.getElementById(`f-${def.key}-${col.key}`);
       const val = el ? el.value.trim() : '';
       if(col.required && !val) missing = true;
@@ -1170,10 +1211,14 @@ function openRegForm(defKey, existingRow){
     });
     if(missing){ alert('Please fill all required fields (marked *).'); return; }
     if(def.autoField && !existingRow){ row[def.autoField.key] = def.autoField.generate(row); }
-    if(!existingRow){ DB[def.key].push(row); }
+    if(!existingRow){
+      if(def.key==='cases' && row.proceedings===undefined) row.proceedings = [];
+      DB[def.key].push(row);
+    }
     await persistDB();
     wrap.innerHTML=''; wrap.dataset.editing='';
     renderRegPanel();
+    if(typeof renderDashboardPanels==='function') renderDashboardPanels();
   });
 }
 
@@ -1183,6 +1228,7 @@ function regRowMatchesSearch(row, allCols, query){
     if(c.type==='clientRef'){ const cl=getClient(v); return cl?(cl.id+' '+cl.name):''; }
     if(c.type==='caseRef'){ const cs=getCase(v); return cs?(cs.id+' '+cs.title):''; }
     if(c.type==='date'){ return v?fmtDate(v):''; }
+    if(c.type==='proceedings'){ return Array.isArray(v) ? v.map(p=>`${p.date||''} ${p.by||''} ${p.text||''}`).join(' ') : ''; }
     return v||'';
   }).join(' ').toLowerCase();
   return haystack.includes(query);
@@ -1223,6 +1269,72 @@ function renderRegPanel(){
 }
 
 /* ============================================================
+   PROCEEDINGS (date-wise log on each case in Case Master)
+   ============================================================ */
+let proceedingsModalCaseId = null;
+function renderProceedingsList(){
+  const cs = getCase(proceedingsModalCaseId);
+  const wrap = document.getElementById('proceedings-list');
+  if(!cs){ wrap.innerHTML = ''; return; }
+  const list = (Array.isArray(cs.proceedings) ? cs.proceedings : []).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  wrap.innerHTML = list.length ? list.map(p=>`
+    <div class="agenda-item" style="align-items:flex-start;">
+      <span class="badge hearing">${p.date?fmtDate(p.date):'—'}</span>
+      <div style="flex:1;">
+        <div>${escapeHtml(p.text||'')}</div>
+        <div class="muted" style="font-size:11px;margin-top:2px;">${p.by?('Written by '+escapeHtml(p.by)):'Written by —'}</div>
+      </div>
+      <button type="button" class="btn-ghost" style="padding:2px 8px;font-size:10.5px;color:var(--maroon);border:1px solid var(--maroon-soft);border-radius:5px;background:none;cursor:pointer;" onclick="deleteProceedingEntry('${p.id}')">✕</button>
+    </div>`).join('') : `<div class="empty-state">No proceedings recorded yet for this case.</div>`;
+}
+function openProceedingsModal(caseId){
+  const cs = getCase(caseId);
+  if(!cs) return;
+  proceedingsModalCaseId = caseId;
+  document.getElementById('proceedings-modal-title').textContent = `Proceedings — ${cs.id} · ${cs.title||''}`;
+  document.getElementById('proceeding-new-date').value = cs.nextDate || new Date().toISOString().slice(0,10);
+  document.getElementById('proceeding-new-by').value = (typeof staffSession!=='undefined' && staffSession && staffSession.name) ? staffSession.name : '';
+  document.getElementById('proceeding-new-text').value = '';
+  document.getElementById('proceeding-add-err').textContent = '';
+  renderProceedingsList();
+  document.getElementById('proceedings-modal').style.display = 'flex';
+}
+function closeProceedingsModal(){
+  document.getElementById('proceedings-modal').style.display = 'none';
+  proceedingsModalCaseId = null;
+}
+async function addProceedingEntry(){
+  const cs = getCase(proceedingsModalCaseId);
+  const errEl = document.getElementById('proceeding-add-err');
+  if(!cs){ return; }
+  const date = document.getElementById('proceeding-new-date').value;
+  const by = document.getElementById('proceeding-new-by').value.trim();
+  const text = document.getElementById('proceeding-new-text').value.trim();
+  if(!date || !text){ errEl.textContent = 'Please enter both the date and the proceeding.'; return; }
+  if(!Array.isArray(cs.proceedings)) cs.proceedings = [];
+  cs.proceedings.push({id:uid(), date, by, text});
+  await persistDB();
+  errEl.textContent = '';
+  document.getElementById('proceeding-new-text').value = '';
+  renderProceedingsList();
+  renderRegPanel();
+  if(document.getElementById('view-cause').style.display!=='none') renderCause();
+  renderDashboardPanels();
+}
+async function deleteProceedingEntry(entryId){
+  const cs = getCase(proceedingsModalCaseId);
+  if(!cs || !Array.isArray(cs.proceedings)) return;
+  cs.proceedings = cs.proceedings.filter(p=>p.id!==entryId);
+  await persistDB();
+  renderProceedingsList();
+  renderRegPanel();
+  if(document.getElementById('view-cause').style.display!=='none') renderCause();
+  renderDashboardPanels();
+}
+document.getElementById('proceedings-modal-close').addEventListener('click', closeProceedingsModal);
+document.getElementById('proceeding-add-btn').addEventListener('click', addProceedingEntry);
+
+/* ============================================================
    INIT
    ============================================================ */
 function wireLoginAndAdminUI(){
@@ -1258,7 +1370,16 @@ function renderDashboardSearch(){
   const wrap=document.getElementById('dashboard-search-results');
   if(!q){wrap.style.display='none';wrap.innerHTML='';return;}
   const results=[];
-  DB.cases.forEach(c=>{ const cl=getClient(c.clientId); const hay=[c.id,c.caseNo,c.title,c.court,c.stage,c.remarks,cl&&cl.name].join(' ').toLowerCase(); if(hay.includes(q)) results.push({type:'CASE',title:c.title,meta:`${c.id} · ${c.caseNo||'No case no.'} · ${c.nextDate?fmtDate(c.nextDate):'No hearing date'}`,detail:c.remarks||'No remarks'}); });
+  DB.cases.forEach(c=>{
+    const cl=getClient(c.clientId);
+    const plist = Array.isArray(c.proceedings) ? c.proceedings : [];
+    const proceedingsText = plist.map(p=>`${p.date||''} ${p.by||''} ${p.text||''}`).join(' ');
+    const hay=[c.id,c.caseNo,c.title,c.court,c.stage,c.engagedFor,proceedingsText,cl&&cl.name].join(' ').toLowerCase();
+    if(hay.includes(q)){
+      const latest = plist.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''))[0];
+      results.push({type:'CASE',title:c.title,meta:`${c.id} · ${c.caseNo||'No case no.'} · ${c.nextDate?fmtDate(c.nextDate):'No hearing date'}`,detail: latest ? `${fmtDate(latest.date)}: ${latest.text}` : 'No proceedings recorded'});
+    }
+  });
   DB.tasks.forEach(t=>{ const hay=[t.task,t.assignedTo,t.status,t.deadline,t.remarks].join(' ').toLowerCase(); if(hay.includes(q)) results.push({type:'TASK',title:t.task,meta:`${t.status||''} · ${t.deadline?fmtDate(t.deadline):'No deadline'} · ${t.assignedTo||'Unassigned'}`,detail:t.remarks||'No remarks'}); });
   DB.drafts.forEach(d=>{ const hay=[d.docType,d.assignedTo,d.status,d.deadline,d.remarks].join(' ').toLowerCase(); if(hay.includes(q)) results.push({type:'DEADLINE',title:d.docType,meta:`${d.deadline?fmtDate(d.deadline):'No deadline'} · ${d.status||''}`,detail:d.remarks||''}); });
   wrap.style.display='block';
