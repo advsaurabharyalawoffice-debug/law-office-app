@@ -138,6 +138,21 @@
 
   .empty-state{ text-align:center; padding:36px 20px; color:var(--text-muted); font-size:13px; }
   .note-box{ background:var(--pink-tint); border-radius:8px; padding:10px 14px; font-size:11.5px; color:var(--maroon-dark); margin-bottom:14px; }
+  .dashboard-search{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 18px;background:#fff;border:1px solid var(--grey-line);border-radius:8px;padding:10px;box-shadow:var(--shadow);}
+  .dashboard-search input{flex:1;min-width:220px;font-family:'Inter',sans-serif;font-size:13px;padding:9px 11px;border:1px solid var(--grey-line);border-radius:6px;}
+  .dashboard-search input:focus{outline:2px solid var(--maroon-soft);}
+  .dash-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:20px;}
+  .dash-panel{border:1px solid var(--grey-line);border-radius:8px;background:#fff;overflow:hidden;}
+  .dash-panel h3{margin:0;padding:10px 13px;background:var(--pink-tint);font-family:'Cormorant Garamond',serif;color:var(--maroon);font-size:18px;}
+  .dash-list{padding:4px 13px;}
+  .dash-item{padding:9px 0;border-bottom:1px solid var(--grey-line);font-size:12px;line-height:1.45;}
+  .dash-item:last-child{border-bottom:none;}
+  .dash-item .meta{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-muted);}
+  .dash-item .remarks{margin-top:4px;color:var(--maroon-dark);}
+  .dash-item .deadline{font-family:'IBM Plex Mono',monospace;font-weight:700;}
+  .security-note{font-size:10.5px;color:var(--text-muted);margin-top:8px;}
+  .audit-table{max-height:360px;overflow:auto;border:1px solid var(--grey-line);border-radius:7px;margin-top:12px;}
+  @media(max-width:640px){.dash-grid{grid-template-columns:1fr;}.dashboard-search input{min-width:100%;}}
 
   .footer{ margin-top:32px; }
   .footer-logo{ text-align:center; padding:22px 20px 16px; }
@@ -161,13 +176,14 @@
     <button class="nav-btn" data-view="tasklist">Tasks</button>
     <button class="nav-btn" data-view="registers">Office Registers</button>
     <button class="nav-btn" id="staff-access-btn" style="margin-left:auto;">🔑 Staff Access</button>
+    <button class="nav-btn" id="logout-btn" style="color:var(--maroon);">⎋ Logout</button>
   </div>
   <div class="sync-bar" id="sync-bar"></div>
 
   <div id="login-gate" class="modal-overlay" style="display:none;">
     <div class="modal-box">
       <h2>Enter your PIN</h2>
-      <p class="sub">Ask the office admin for your PIN if you don't have one yet. Your browser will remember it after this.</p>
+      <p class="sub">Enter your office PIN. For security, this app will require your PIN again whenever the page is opened or after you log out.</p>
       <input type="password" id="login-pin-input" placeholder="PIN" inputmode="numeric" autocomplete="off">
       <div class="err" id="login-pin-err"></div>
       <div class="modal-actions"><button class="btn btn-primary" id="login-pin-submit">Enter</button></div>
@@ -191,6 +207,8 @@
       </div>
       <div id="staff-admin-panel" style="display:none;">
         <div id="staff-list"></div>
+        <div style="margin-top:14px;"><button class="btn btn-ghost" id="staff-audit-btn">View Login Activity</button></div>
+        <div id="staff-audit-list"></div>
         <div class="staff-add-row">
           <input type="text" id="staff-new-name" placeholder="Staff name">
           <input type="text" id="staff-new-pin" placeholder="PIN (4+ digits)" inputmode="numeric">
@@ -205,7 +223,13 @@
   <div class="content">
 
     <div id="view-dashboard">
-      <h2 class="section-title">Diary <span class="tag">calendar</span></h2>
+      <h2 class="section-title">Dashboard <span class="tag">office overview</span></h2>
+      <div class="dashboard-search">
+        <input type="text" id="dashboard-search" placeholder="🔍 Search cases, clients, tasks, deadlines, remarks..." autocomplete="off">
+        <button class="btn btn-ghost" id="dashboard-search-clear">Clear</button>
+      </div>
+      <div id="dashboard-search-results" style="display:none;margin-bottom:18px;"></div>
+      <h2 class="section-title" style="font-size:22px;">Diary <span class="tag">calendar</span></h2>
       <div class="cal-head">
         <div class="cal-nav"><button id="cal-prev">‹</button></div>
         <div class="month-label" id="cal-month-label"></div>
@@ -214,6 +238,12 @@
       <div class="calendar-grid" id="cal-dow-row"></div>
       <div class="calendar-grid" id="cal-grid"></div>
       <div class="agenda" id="cal-agenda"></div>
+      <div class="dash-grid">
+        <div class="dash-panel"><h3>📋 Today's Cases</h3><div class="dash-list" id="dashboard-today-cases"></div></div>
+        <div class="dash-panel"><h3>✅ Today's Tasks</h3><div class="dash-list" id="dashboard-today-tasks"></div></div>
+        <div class="dash-panel"><h3>⏰ Upcoming Deadlines</h3><div class="dash-list" id="dashboard-deadlines"></div></div>
+        <div class="dash-panel"><h3>📝 Case Remarks / Directions</h3><div class="dash-list" id="dashboard-case-remarks"></div></div>
+      </div>
       <div class="export-line"><button class="btn btn-ghost" id="export-all-ics">⤓ Export full diary (.ics)</button></div>
 
       <div class="tiles">
@@ -260,7 +290,7 @@
       <div class="export-bar"><button class="btn btn-ghost" id="ics-export-tasklist">⤓ Export .ics</button></div>
       <div class="panel-box">
         <table>
-          <thead><tr><th>Deadline</th><th>Days Left</th><th>Task</th><th>Assigned To</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Deadline</th><th>Days Left</th><th>Task</th><th>Assigned To</th><th>Status</th><th>Remarks</th><th></th></tr></thead>
           <tbody id="tasklist-tbody"></tbody>
         </table>
       </div>
@@ -269,7 +299,7 @@
     <div id="view-registers" style="display:none;">
       <a class="back-link" data-goto="dashboard">← Back to dashboard</a>
       <h2 class="section-title">Office Registers</h2>
-      <div class="note-box" id="storage-note"></div>
+      <div class="note-box" id="storage-note"></div><div class="security-note">Security: use HTTPS for the deployed app, keep the Apps Script endpoint and admin credentials private, use strong unique PINs, and do not store passwords in client-side HTML. Server-side authentication, authorization and audit logging must be enforced by the backend.</div>
       <div class="toolbar">
         <input type="text" id="reg-search" class="remarks-input" style="max-width:300px;" placeholder="🔍 Search this register...">
       </div>
@@ -277,6 +307,7 @@
       <div id="reg-panel"></div>
       <div style="text-align:right;margin-top:16px;display:flex;justify-content:flex-end;gap:8px;">
         <button class="btn btn-ghost" id="reset-sample-btn">↺ Reset to sample data</button>
+        <button class="btn btn-ghost" id="recover-backup-btn">↩ Recover last local backup</button>
         <button class="btn btn-ghost" id="clear-all-btn" style="color:var(--maroon);border-color:var(--maroon-soft);">✕ Clear all data</button>
       </div>
     </div>
@@ -329,17 +360,9 @@ const STAFF_SESSION_KEY = 'saurabh-arya-staff-session';
 let staffSession = null; // {pin, staffId, name}
 let backendReady = false;
 
-function loadStaffSession(){
-  try{ const raw = localStorage.getItem(STAFF_SESSION_KEY); return raw ? JSON.parse(raw) : null; }catch(e){ return null; }
-}
-function saveStaffSession(session){
-  staffSession = session;
-  try{ localStorage.setItem(STAFF_SESSION_KEY, JSON.stringify(session)); }catch(e){}
-}
-function clearStaffSession(){
-  staffSession = null;
-  try{ localStorage.removeItem(STAFF_SESSION_KEY); }catch(e){}
-}
+function loadStaffSession(){ return null; }
+function saveStaffSession(session){ staffSession = {...session, loginAt: Date.now()}; }
+function clearStaffSession(){ staffSession = null; }
 
 async function callBackend(action, params={}){
   const res = await fetch(BACKEND_CONFIG.APPS_SCRIPT_URL, {
@@ -365,6 +388,7 @@ async function attemptLogin(pin){
     const resp = await callBackend('login', {pin});
     if(resp.ok){
       saveStaffSession({pin, staffId:resp.staffId, name:resp.name});
+      try{ await callBackend('logLogin', {pin, staffId:resp.staffId, name:resp.name, timestamp:new Date().toISOString()}); }catch(e){}
       hideLoginGate();
       await startBackendSync();
     } else {
@@ -411,15 +435,24 @@ async function checkBackendRemoteUpdates(){
     }
   }
 }
+function hasRealUserData(){
+  return ['clients','cases','drafts','certifiedCopies','pf','notices','appointments','tasks','bankPanel'].some(k=>Array.isArray(DB[k]) && DB[k].length>0);
+}
 async function startBackendSync(){
   updateSyncBar('connecting');
   try{
+    const hadLocalData = hasRealUserData();
     const hadData = await backendLoadDB();
-    if(!hadData && !DB.clients.length){ seedSampleData(); await backendPersistDB(); }
+    // Critical migration rule: never replace an existing local dataset with sample data.
+    // If the cloud is empty but this browser has records, migrate those records to the cloud.
+    if(!hadData){
+      if(hadLocalData){ await backendPersistDB(); }
+      else { seedSampleData(); await backendPersistDB(); }
+    }
     backendReady = true;
     updateSyncBar();
     rerenderCurrentView();
-    setInterval(checkBackendRemoteUpdates, 6000);
+    if(!window.__backendSyncTimer) window.__backendSyncTimer=setInterval(checkBackendRemoteUpdates, 6000);
   }catch(e){
     if(e.message==='unauthorized'){
       clearStaffSession();
@@ -439,7 +472,7 @@ function updateSyncBar(state){
   if(state==='connecting'){ bar.innerHTML = `Connecting…`; return; }
   if(state==='error'){ bar.innerHTML = `Couldn't reach the server. <button class="btn btn-primary" id="sync-retry-btn">Retry</button>`; }
   else if(backendReady){
-    bar.innerHTML = `📁 Synced · signed in as ${escapeHtml(staffSession.name||'')} <button class="btn btn-ghost" id="sync-switch-btn">Not you? Switch PIN</button>`;
+    bar.innerHTML = `📁 Synced · signed in as ${escapeHtml(staffSession.name||'')} <button class="btn btn-ghost" id="sync-switch-btn">Switch PIN</button>`;
   } else {
     bar.innerHTML = `Not signed in.`;
   }
@@ -492,6 +525,11 @@ async function refreshStaffList(){
     });
   }catch(e){ listEl.innerHTML = 'Could not reach the server.'; }
 }
+async function refreshStaffAudit(){
+  const el=document.getElementById('staff-audit-list'); el.innerHTML='<div class="muted" style="padding:8px 0;">Loading login activity…</div>';
+  try{ const resp=await callBackend('adminGetAudit',{password:staffAdminPassword}); if(!resp.ok) throw new Error(resp.error||'Audit endpoint unavailable'); const rows=resp.audit||[]; el.innerHTML=rows.length?`<div class="audit-table"><table><thead><tr><th>Staff</th><th>Login</th><th>Logout</th><th>Duration</th></tr></thead><tbody>${rows.map(a=>`<tr><td>${escapeHtml(a.name||a.staffId||'')}</td><td>${escapeHtml(a.loginAt||'')}</td><td>${escapeHtml(a.logoutAt||'Active')}</td><td>${escapeHtml(a.duration||'Active')}</td></tr>`).join('')}</tbody></table></div>`:'<div class="muted" style="padding:8px 0;">No login activity recorded.</div>'; }catch(e){ el.innerHTML='<div class="note-box">Login activity requires the matching Apps Script backend endpoints <b>logLogin</b>, <b>logLogout</b> and <b>adminGetAudit</b>. The current HTML cannot securely create server-side audit records by itself.</div>'; }
+}
+
 async function addStaff(){
   const name = document.getElementById('staff-new-name').value.trim();
   const pin = document.getElementById('staff-new-pin').value.trim();
@@ -511,6 +549,8 @@ async function addStaff(){
 }
 
 async function persistDB(){
+  // Always keep a local recovery snapshot before changing the active dataset.
+  try{ if(lastKnownRaw) localStorage.setItem('saurabh-arya-law-office-last-backup-v1', lastKnownRaw); }catch(e){}
   if(backendReady){
     try{ await backendPersistDB(); storageAvailable=true; return; }
     catch(e){ console.warn('Backend save failed, falling back.', e); }
@@ -527,6 +567,15 @@ async function persistDB(){
     console.warn('Could not save — changes will not persist / sync.', e);
   }
 }
+function mergeIntoDB(parsed){
+  if(!parsed || typeof parsed!=='object') return false;
+  const keys = ['clients','cases','drafts','certifiedCopies','pf','notices','appointments','tasks','bankPanel','counters'];
+  keys.forEach(k=>{ if(parsed[k]!==undefined) DB[k]=Array.isArray(parsed[k]) ? parsed[k] : (k==='counters' ? parsed[k] : DB[k]); });
+  // Forward-compatible migration: old task records simply receive an empty remarks field.
+  DB.tasks.forEach(t=>{ if(t.remarks===undefined) t.remarks=''; });
+  return keys.some(k=>parsed[k]!==undefined);
+}
+
 async function loadDB(){
   try{
     if(usingSharedStorage){
@@ -534,7 +583,7 @@ async function loadDB(){
       if(!result || !result.value) return false;
       lastKnownRaw = result.value;
       const parsed = JSON.parse(result.value);
-      Object.keys(DB).forEach(k=>{ if(parsed[k]!==undefined) DB[k]=parsed[k]; });
+      mergeIntoDB(parsed);
       lastSyncedAt = new Date();
       return true;
     } else {
@@ -542,7 +591,7 @@ async function loadDB(){
       if(!raw) return false;
       lastKnownRaw = raw;
       const parsed = JSON.parse(raw);
-      Object.keys(DB).forEach(k=>{ if(parsed[k]!==undefined) DB[k]=parsed[k]; });
+      mergeIntoDB(parsed);
       return true;
     }
   }catch(e){ return false; }
@@ -718,7 +767,8 @@ const REGISTERS = [
       {key:'task', label:'Task', type:'text', required:true},
       {key:'assignedTo', label:'Assigned To', type:'text'},
       {key:'deadline', label:'Deadline', type:'date'},
-      {key:'status', label:'Status', type:'select', options:['Pending','In Progress','Done']}
+      {key:'status', label:'Status', type:'select', options:['Pending','In Progress','Done']},
+      {key:'remarks', label:'Remarks', type:'text'}
     ]
   },
   { key:'bankPanel', label:'Bank Panel Register', idPrefix:'WORK',
@@ -849,6 +899,23 @@ function eventsOnDate(iso){ return allCalendarEvents().filter(e=>e.date===iso); 
 let calCursor = new Date(); calCursor.setDate(1);
 let selectedDate = new Date().toISOString().slice(0,10);
 
+function dashboardEmpty(text){ return `<div class="muted" style="padding:10px 0;">${escapeHtml(text)}</div>`; }
+function renderDashboardPanels(){
+  const today=new Date().toISOString().slice(0,10);
+  const cases=DB.cases.filter(c=>c.nextDate===today).sort((a,b)=>(a.title||'').localeCompare(b.title||''));
+  const tasks=DB.tasks.filter(t=>t.deadline===today && t.status!=='Done').sort((a,b)=>(a.task||'').localeCompare(b.task||''));
+  const deadlineRows=[];
+  DB.drafts.forEach(d=>{if(d.deadline && d.deadline>=today) deadlineRows.push({date:d.deadline,title:d.docType||'Draft',remarks:d.remarks||''});});
+  DB.tasks.forEach(t=>{if(t.deadline && t.deadline>=today && t.status!=='Done') deadlineRows.push({date:t.deadline,title:'Task: '+(t.task||''),remarks:t.remarks||''});});
+  DB.pf.forEach(x=>{if(x.filingDate && x.filingDate>=today) deadlineRows.push({date:x.filingDate,title:'PF: '+(x.summoningFor||''),remarks:x.remarks||''});});
+  deadlineRows.sort((a,b)=>a.date.localeCompare(b.date));
+  const remarks=DB.cases.filter(c=>c.remarks).sort((a,b)=>(a.nextDate||'').localeCompare(b.nextDate||'')).slice(0,12);
+  document.getElementById('dashboard-today-cases').innerHTML=cases.length?cases.map(c=>`<div class="dash-item"><strong>${escapeHtml(c.id)} — ${escapeHtml(c.title)}</strong><div class="meta">${escapeHtml(c.court||'')} ${c.roomNo?'· Room '+escapeHtml(c.roomNo):''}</div><div class="remarks">${escapeHtml(c.remarks||'Add remarks in Cause List')}</div></div>`).join(''):dashboardEmpty('No hearings scheduled today.');
+  document.getElementById('dashboard-today-tasks').innerHTML=tasks.length?tasks.map(t=>`<div class="dash-item"><strong>${escapeHtml(t.task)}</strong><div class="meta">${escapeHtml(t.assignedTo||'Unassigned')} · ${escapeHtml(t.status||'')}</div><div class="remarks">${escapeHtml(t.remarks||'No remarks')}</div></div>`).join(''):dashboardEmpty('No tasks due today.');
+  document.getElementById('dashboard-deadlines').innerHTML=deadlineRows.length?deadlineRows.slice(0,12).map(x=>`<div class="dash-item"><div class="deadline">${escapeHtml(fmtDate(x.date))}</div><strong>${escapeHtml(x.title)}</strong><div class="remarks">${escapeHtml(x.remarks||'')}</div></div>`).join(''):dashboardEmpty('No upcoming deadlines.');
+  document.getElementById('dashboard-case-remarks').innerHTML=remarks.length?remarks.map(c=>`<div class="dash-item"><strong>${escapeHtml(c.id)} — ${escapeHtml(c.title)}</strong><div class="meta">${c.nextDate?escapeHtml(fmtDate(c.nextDate)):'No hearing date'}</div><div class="remarks">${escapeHtml(c.remarks)}</div></div>`).join(''):dashboardEmpty('No case remarks recorded.');
+}
+
 function renderCalendar(){
   document.getElementById('cal-month-label').textContent = calCursor.toLocaleDateString('en-IN',{month:'long',year:'numeric'});
   document.getElementById('cal-dow-row').innerHTML = ['S','M','T','W','T','F','S'].map(d=>`<div class="cal-dow">${d}</div>`).join('');
@@ -870,6 +937,7 @@ function renderCalendar(){
   }
   grid.querySelectorAll('.cal-day:not(.empty)').forEach(el=>el.addEventListener('click',()=>{ selectedDate=el.dataset.iso; renderCalendar(); }));
   renderAgenda();
+  renderDashboardPanels();
 }
 document.getElementById('cal-prev').addEventListener('click',()=>{ calCursor.setMonth(calCursor.getMonth()-1); renderCalendar(); });
 document.getElementById('cal-next').addEventListener('click',()=>{ calCursor.setMonth(calCursor.getMonth()+1); renderCalendar(); });
@@ -982,7 +1050,7 @@ function renderTaskList(){
   document.getElementById('tasklist-count-tag').textContent = list.length + ' tasks';
 
   const tbody = document.getElementById('tasklist-tbody');
-  if(!list.length){ tbody.innerHTML = `<tr><td colspan="6" class="empty-state">${tasklistSearchQuery ? 'No tasks match your search.' : 'No tasks on record. Add one in Office Registers → Tasks.'}</td></tr>`; return; }
+  if(!list.length){ tbody.innerHTML = `<tr><td colspan="7" class="empty-state">${tasklistSearchQuery ? 'No tasks match your search.' : 'No tasks on record. Add one in Office Registers → Tasks.'}</td></tr>`; return; }
   tbody.innerHTML = list.map(t=>{
     let daysCell = '<span class="muted">—</span>';
     let gcalCell = '';
@@ -999,9 +1067,11 @@ function renderTaskList(){
       <td>${escapeHtml(t.task)}</td>
       <td>${escapeHtml(t.assignedTo)}</td>
       <td><span class="status-pill ${statusPillClass(t.status)}">${escapeHtml(t.status||'—')}</span></td>
+      <td><input type="text" class="remarks-input task-remarks-input" data-taskid="${t.id}" value="${escapeHtml(t.remarks||'')}" placeholder="Add task remarks"></td>
       <td>${gcalCell}</td>
     </tr>`;
   }).join('');
+  document.querySelectorAll('.task-remarks-input').forEach(inp=>inp.addEventListener('change',async e=>{ const t=DB.tasks.find(x=>x.id===e.target.dataset.taskid); if(t){t.remarks=e.target.value; await persistDB(); renderDashboardPanels();} }));
 }
 document.getElementById('ics-export-tasklist').addEventListener('click', ()=>{
   const list = DB.tasks.filter(t=>t.deadline);
@@ -1026,7 +1096,7 @@ function renderRegisters(){
   if(!storageAvailable){
     noteEl.textContent = 'Changes aren\'t saving right now — they will be lost on reload.';
   } else if(usingSharedStorage){
-    noteEl.textContent = '🔗 Shared mode: every entry here is visible to anyone else using this app, and updates from others appear within a few seconds.';
+    noteEl.textContent = '🔗 Shared mode: entries are stored in the connected backend. This version also keeps a local recovery snapshot before saves. Never rely on the browser alone for confidential records.';
   } else {
     noteEl.textContent = '💾 Local-only mode: entries are saved in this browser on this device only — open this exact file the same way to see them again. To share live updates with staff, open this app as a Claude artifact/link instead of a downloaded file.';
   }
@@ -1034,6 +1104,10 @@ function renderRegisters(){
 }
 document.getElementById('reset-sample-btn').addEventListener('click', resetToSampleData);
 document.getElementById('clear-all-btn').addEventListener('click', clearAllData);
+document.getElementById('recover-backup-btn').addEventListener('click', recoverLastBackup);
+async function recoverLastBackup(){
+  try{ const raw=localStorage.getItem('saurabh-arya-law-office-last-backup-v1'); if(!raw){alert('No local recovery backup is available on this device.');return;} if(!confirm('Restore the last local recovery snapshot? Current data will be replaced and saved to the shared backend if connected.'))return; const parsed=JSON.parse(raw); mergeIntoDB(parsed); await persistDB(); rerenderCurrentView(); alert('Recovery snapshot restored.'); }catch(e){alert('Could not restore the local backup.');}
+}
 
 function fieldInputHtml(fieldId, col, value){
   value = (value===undefined || value===null) ? '' : value;
@@ -1165,24 +1239,45 @@ function wireLoginAndAdminUI(){
   document.getElementById('staff-admin-login-btn').addEventListener('click', staffAdminLogin);
   document.getElementById('staff-admin-pass-input').addEventListener('keydown', (e)=>{ if(e.key==='Enter') staffAdminLogin(); });
   document.getElementById('staff-add-btn').addEventListener('click', addStaff);
+  document.getElementById('staff-audit-btn').addEventListener('click', refreshStaffAudit);
   document.getElementById('reg-search').addEventListener('input', (e)=>{ regSearchQuery = e.target.value.trim().toLowerCase(); renderRegPanel(); });
+  document.getElementById('logout-btn').addEventListener('click', logout);
+  document.getElementById('dashboard-search').addEventListener('input', renderDashboardSearch);
+  document.getElementById('dashboard-search-clear').addEventListener('click', ()=>{ document.getElementById('dashboard-search').value=''; renderDashboardSearch(); });
 }
+
+async function logout(){
+  if(staffSession){
+    try{ await callBackend('logLogout', {pin:staffSession.pin, staffId:staffSession.staffId, name:staffSession.name, timestamp:new Date().toISOString(), durationSeconds:Math.max(0, Math.round((Date.now()-(staffSession.loginAt||Date.now()))/1000))}); }catch(e){}
+  }
+  clearStaffSession(); backendReady=false; updateSyncBar(); showLoginGate('You have been logged out.');
+}
+
+function renderDashboardSearch(){
+  const q=(document.getElementById('dashboard-search').value||'').trim().toLowerCase();
+  const wrap=document.getElementById('dashboard-search-results');
+  if(!q){wrap.style.display='none';wrap.innerHTML='';return;}
+  const results=[];
+  DB.cases.forEach(c=>{ const cl=getClient(c.clientId); const hay=[c.id,c.caseNo,c.title,c.court,c.stage,c.remarks,cl&&cl.name].join(' ').toLowerCase(); if(hay.includes(q)) results.push({type:'CASE',title:c.title,meta:`${c.id} · ${c.caseNo||'No case no.'} · ${c.nextDate?fmtDate(c.nextDate):'No hearing date'}`,detail:c.remarks||'No remarks'}); });
+  DB.tasks.forEach(t=>{ const hay=[t.task,t.assignedTo,t.status,t.deadline,t.remarks].join(' ').toLowerCase(); if(hay.includes(q)) results.push({type:'TASK',title:t.task,meta:`${t.status||''} · ${t.deadline?fmtDate(t.deadline):'No deadline'} · ${t.assignedTo||'Unassigned'}`,detail:t.remarks||'No remarks'}); });
+  DB.drafts.forEach(d=>{ const hay=[d.docType,d.assignedTo,d.status,d.deadline,d.remarks].join(' ').toLowerCase(); if(hay.includes(q)) results.push({type:'DEADLINE',title:d.docType,meta:`${d.deadline?fmtDate(d.deadline):'No deadline'} · ${d.status||''}`,detail:d.remarks||''}); });
+  wrap.style.display='block';
+  wrap.innerHTML=`<div class="panel-box"><strong>${results.length} result(s)</strong>${results.length?results.slice(0,50).map(r=>`<div class="dash-item"><span class="idchip">${escapeHtml(r.type)}</span> <strong>${escapeHtml(r.title)}</strong><div class="meta">${escapeHtml(r.meta)}</div><div class="remarks">${escapeHtml(r.detail)}</div></div>`).join(''):'<div class="empty-state">No cases, tasks or deadlines match your search.</div>'}</div>`;
+}
+
 
 async function initApp(){
   wireLoginAndAdminUI();
   updateSyncBar();
-  if(isBackendConfigured()){
-    staffSession = loadStaffSession();
-    if(staffSession){
-      await startBackendSync();
-    } else {
-      showLoginGate();
-    }
-  }
+  // Load the previous browser dataset BEFORE connecting to the cloud so a first-time
+  // cloud connection can migrate those entries instead of seeding/overwriting them.
   const hadSavedData = await loadDB();
-  if(!hadSavedData && !backendReady){ seedSampleData(); await persistDB(); }
+  if(isBackendConfigured()){
+    clearStaffSession();
+    showLoginGate();
+  }
+  if(!hadSavedData && !isBackendConfigured()){ seedSampleData(); await persistDB(); }
   goto('dashboard');
-  if(usingSharedStorage){ setInterval(checkForRemoteUpdates, 4000); }
 }
 initApp();
 </script>
