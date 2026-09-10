@@ -225,10 +225,10 @@
       <h2 id="proceedings-modal-title">Proceedings</h2>
       <p class="sub" id="proceedings-modal-sub">One entry per date — any staff member attending on that date can add what happened.</p>
       <div id="proceedings-list" style="max-height:260px;overflow-y:auto;margin-bottom:14px;"></div>
-      <div class="form-grid" style="grid-template-columns:130px 110px 1fr;margin-bottom:8px;">
+      <div class="form-grid" style="margin-bottom:8px;">
         <div><label>Date</label><input type="date" id="proceeding-new-date"></div>
         <div><label>Written By</label><input type="text" id="proceeding-new-by" placeholder="Staff name"></div>
-        <div><label>Proceeding</label><input type="text" id="proceeding-new-text" placeholder="What happened on this date"></div>
+        <div style="grid-column:1/-1;"><label>Proceeding</label><input type="text" id="proceeding-new-text" placeholder="What happened on this date"></div>
       </div>
       <div class="err" id="proceeding-add-err"></div>
       <div class="modal-actions">
